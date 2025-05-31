@@ -43,6 +43,8 @@ export default function LinkManager() {
   const [draggedItem, setDraggedItem] = useState<string | null>(null)
   const [dragOverItem, setDragOverItem] = useState<string | null>(null)
   const [loadingIcons, setLoadingIcons] = useState<Set<string>>(new Set())
+  const [isOnline, setIsOnline] = useState(true)
+  const [showOfflinePage, setShowOfflinePage] = useState(false)
 
   // Register service worker - simplified approach
   useEffect(() => {
@@ -68,6 +70,33 @@ export default function LinkManager() {
           console.error('[App] Service worker registration failed:', error)
         }
       })
+    }
+  }, [])
+
+  // Network status detection (YouTube-style)
+  useEffect(() => {
+    const updateOnlineStatus = () => {
+      const online = navigator.onLine
+      setIsOnline(online)
+      
+      if (!online) {
+        // Show offline page after a short delay to avoid flicker
+        setTimeout(() => setShowOfflinePage(true), 500)
+      } else {
+        setShowOfflinePage(false)
+      }
+    }
+
+    // Check initial status
+    updateOnlineStatus()
+
+    // Listen for network changes
+    window.addEventListener('online', updateOnlineStatus)
+    window.addEventListener('offline', updateOnlineStatus)
+
+    return () => {
+      window.removeEventListener('online', updateOnlineStatus)
+      window.removeEventListener('offline', updateOnlineStatus)
     }
   }, [])
 
@@ -458,8 +487,49 @@ export default function LinkManager() {
     setLinks((prev) => [...prev, newLink])
   }
 
+  // Offline Page Component (YouTube-style)
+  const OfflinePage = () => (
+    <div className="min-h-screen bg-background flex items-center justify-center p-4">
+      <div className="text-center max-w-md space-y-6">
+        <div className="relative">
+          <div className="w-32 h-32 mx-auto bg-gradient-to-br from-purple-500 via-purple-600 to-indigo-600 rounded-full flex items-center justify-center text-6xl shadow-2xl">
+            🔗
+          </div>
+          <div className="absolute -top-2 -right-2 w-8 h-8 bg-red-500 rounded-full flex items-center justify-center text-white text-sm font-bold">
+            !
+          </div>
+        </div>
+        
+        <div className="space-y-3">
+          <h1 className="text-3xl font-bold text-foreground">Connect to the Internet</h1>
+          <p className="text-muted-foreground text-lg">
+            You're offline. Check your connection.
+          </p>
+        </div>
+        
+        <Button 
+          onClick={() => window.location.reload()} 
+          className="px-8 py-3 text-lg"
+          size="lg"
+        >
+          Retry
+        </Button>
+        
+        <div className="text-sm text-muted-foreground mt-8 space-y-2">
+          <p>💡 <strong>Tip:</strong> Your saved links are stored locally</p>
+          <p>They'll be available as soon as you're back online!</p>
+        </div>
+      </div>
+    </div>
+  )
+
   if (!mounted) {
     return null
+  }
+
+  // Show offline page if not online (YouTube approach)
+  if (showOfflinePage) {
+    return <OfflinePage />
   }
 
   return (
