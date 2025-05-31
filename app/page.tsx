@@ -30,7 +30,7 @@ const FONT_OPTIONS = [
 
 export default function LinkManager() {
   const [links, setLinks] = useState<Link[]>([])
-  const [selectedFont, setSelectedFont] = useState("mono")
+  const [selectedFont, setSelectedFont] = useState("Monospace")
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
   const [editingLink, setEditingLink] = useState<Link | null>(null)
   const [newLinkUrl, setNewLinkUrl] = useState("")
