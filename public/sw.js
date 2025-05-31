@@ -1,4 +1,4 @@
-const CACHE_NAME = 'link-manager-v2'
+const CACHE_NAME = 'link-manager-v3'
 const urlsToCache = [
   '/',
   '/manifest.json',
@@ -31,79 +31,61 @@ self.addEventListener('fetch', (event) => {
     return
   }
 
-  // For hard refresh requests (cache: 'reload'), always try network first but fall back to cache
-  if (event.request.cache === 'reload') {
-    event.respondWith(
-      fetch(event.request)
-        .then((response) => {
-          // Network succeeded, cache the response
-          if (response && response.status === 200 && response.type === 'basic') {
-            const responseToCache = response.clone()
-            caches.open(CACHE_NAME).then((cache) => {
-              cache.put(event.request, responseToCache)
-            })
-          }
-          return response
-        })
-        .catch(() => {
-          // Network failed, fall back to cache even for hard refresh
-          return caches.match(event.request).then((cachedResponse) => {
-            if (cachedResponse) {
-              return cachedResponse
-            }
-            // If no cache, show offline page for navigation requests
-            if (event.request.mode === 'navigate') {
-              return caches.match('/') || caches.match('/offline.html')
-            }
-            // For other requests, return a basic offline response
-            return new Response('Offline', { status: 503, statusText: 'Service Unavailable' })
-          })
-        })
-    )
-    return
-  }
-
-  // Standard cache-first strategy for normal requests
   event.respondWith(
+    // Try cache first
     caches.match(event.request)
-      .then((response) => {
-        // Cache hit - return response
-        if (response) {
-          return response
+      .then((cachedResponse) => {
+        // If found in cache, return it
+        if (cachedResponse) {
+          // Also try to update cache in background for fresh content
+          fetch(event.request)
+            .then((response) => {
+              if (response && response.status === 200 && response.type === 'basic') {
+                const responseToCache = response.clone()
+                caches.open(CACHE_NAME).then((cache) => {
+                  cache.put(event.request, responseToCache)
+                })
+              }
+            })
+            .catch(() => {
+              // Network failed, but we have cache so it's fine
+            })
+          
+          return cachedResponse
         }
 
-        return fetch(event.request).then(
-          (response) => {
+        // Not in cache, try network
+        return fetch(event.request)
+          .then((response) => {
             // Check if we received a valid response
-            if(!response || response.status !== 200 || response.type !== 'basic') {
+            if (!response || response.status !== 200 || response.type !== 'basic') {
               return response
             }
 
             // Clone the response for caching
             const responseToCache = response.clone()
-
-            caches.open(CACHE_NAME)
-              .then((cache) => {
-                // Only cache same-origin requests
-                if (event.request.url.startsWith(self.location.origin)) {
-                  cache.put(event.request, responseToCache)
-                }
-              })
+            caches.open(CACHE_NAME).then((cache) => {
+              cache.put(event.request, responseToCache)
+            })
 
             return response
-          }
-        ).catch(() => {
-          // Network failed, try to return appropriate fallback
-          if (event.request.mode === 'navigate') {
-            // For navigation requests, try main page first, then offline page
-            return caches.match('/').then((response) => {
-              return response || caches.match('/offline.html')
+          })
+          .catch(() => {
+            // Network failed and no cache
+            if (event.request.mode === 'navigate') {
+              // For navigation requests, try main page first, then offline page
+              return caches.match('/').then((response) => {
+                return response || caches.match('/offline.html')
+              })
+            }
+            
+            // For other requests, return a simple offline response
+            return new Response('Offline', { 
+              status: 503, 
+              statusText: 'Service Unavailable',
+              headers: new Headers({ 'Content-Type': 'text/plain' })
             })
-          }
-          
-          // For other requests, try to match from cache
-          return caches.match(event.request)
-        })
+          })
       })
   )
 })
