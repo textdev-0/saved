@@ -12,7 +12,6 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useTheme } from "next-themes"
 import { OfflineToast } from "@/components/offline-toast"
-import { usePathname } from 'next/navigation'
 
 interface Link {
   id: string
@@ -44,77 +43,33 @@ export default function LinkManager() {
   const [draggedItem, setDraggedItem] = useState<string | null>(null)
   const [dragOverItem, setDragOverItem] = useState<string | null>(null)
   const [loadingIcons, setLoadingIcons] = useState<Set<string>>(new Set())
-  const pathname = usePathname()
 
-  // Register service worker with update handling
+  // Register service worker - simplified approach
   useEffect(() => {
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', async () => {
         try {
           const registration = await navigator.serviceWorker.register('/sw.js')
-          console.log('SW registered: ', registration)
+          console.log('[App] Service worker registered:', registration)
           
-          // Check for updates
+          // Handle updates
           registration.addEventListener('updatefound', () => {
             const newWorker = registration.installing
             if (newWorker) {
               newWorker.addEventListener('statechange', () => {
                 if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-                  // New service worker is ready, prompt for reload
-                  console.log('New service worker available')
-                  // You could show a toast here to prompt user to reload
+                  console.log('[App] New service worker available, reloading...')
+                  window.location.reload()
                 }
               })
             }
           })
-          
-          // Handle controller change (when new SW takes over)
-          let refreshing = false
-          navigator.serviceWorker.addEventListener('controllerchange', () => {
-            if (!refreshing) {
-              refreshing = true
-              window.location.reload()
-            }
-          })
-          
-          // Cache important Next.js assets on first load
-          if (registration.active) {
-            // Get all script tags and cache them
-            const scripts = Array.from(document.querySelectorAll('script[src]'))
-            const links = Array.from(document.querySelectorAll('link[href]'))
-            
-            const urls = [
-              ...scripts.map(s => s.getAttribute('src')).filter(Boolean),
-              ...links.map(l => l.getAttribute('href')).filter(Boolean),
-              '/_next/static/chunks/webpack.js',
-              '/_next/static/chunks/framework.js',
-              '/_next/static/chunks/main.js',
-              '/_next/static/chunks/pages/_app.js',
-              '/_next/static/chunks/pages/_error.js'
-            ]
-            
-            registration.active.postMessage({
-              type: 'CACHE_URLS',
-              payload: { urls: urls.filter(url => url && url.startsWith('/')) }
-            })
-          }
         } catch (error) {
-          console.error('SW registration failed:', error)
+          console.error('[App] Service worker registration failed:', error)
         }
       })
     }
   }, [])
-
-  // Cache pages on navigation for offline access
-  useEffect(() => {
-    if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
-      // Cache the current page
-      navigator.serviceWorker.controller.postMessage({
-        type: 'CACHE_URLS',
-        payload: { urls: [pathname] }
-      })
-    }
-  }, [pathname])
 
   // Handle hydration
   useEffect(() => {
