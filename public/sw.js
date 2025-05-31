@@ -1,4 +1,4 @@
-const CACHE_NAME = 'link-manager-v1'
+const CACHE_NAME = 'link-manager-v2'
 const urlsToCache = [
   '/',
   '/manifest.json',
@@ -31,6 +31,39 @@ self.addEventListener('fetch', (event) => {
     return
   }
 
+  // For hard refresh requests (cache: 'reload'), always try network first but fall back to cache
+  if (event.request.cache === 'reload') {
+    event.respondWith(
+      fetch(event.request)
+        .then((response) => {
+          // Network succeeded, cache the response
+          if (response && response.status === 200 && response.type === 'basic') {
+            const responseToCache = response.clone()
+            caches.open(CACHE_NAME).then((cache) => {
+              cache.put(event.request, responseToCache)
+            })
+          }
+          return response
+        })
+        .catch(() => {
+          // Network failed, fall back to cache even for hard refresh
+          return caches.match(event.request).then((cachedResponse) => {
+            if (cachedResponse) {
+              return cachedResponse
+            }
+            // If no cache, show offline page for navigation requests
+            if (event.request.mode === 'navigate') {
+              return caches.match('/') || caches.match('/offline.html')
+            }
+            // For other requests, return a basic offline response
+            return new Response('Offline', { status: 503, statusText: 'Service Unavailable' })
+          })
+        })
+    )
+    return
+  }
+
+  // Standard cache-first strategy for normal requests
   event.respondWith(
     caches.match(event.request)
       .then((response) => {
