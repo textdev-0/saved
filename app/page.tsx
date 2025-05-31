@@ -3,7 +3,7 @@
 import type React from "react"
 
 import { useState, useEffect } from "react"
-import { Plus, ExternalLink, Edit2, Trash2, Moon, Sun, Type, Image, X, Star, GripVertical, Upload, Zap, BookOpen, Github, Twitter, Youtube, Globe, Lightbulb } from "lucide-react"
+import { Plus, ExternalLink, Edit2, Trash2, Moon, Sun, Type, Image, X, Star, GripVertical, Upload, Zap, BookOpen, Github, Twitter, Youtube, Globe, Lightbulb, ChevronDown } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -634,6 +634,27 @@ export default function LinkManager() {
                     <p className="text-muted-foreground max-w-md mx-auto text-sm sm:text-base leading-relaxed">
                       Start building your personal link collection. Organize your favorite websites, tools, and resources in one place.
                     </p>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="gap-2 text-muted-foreground hover:text-foreground border"
+                      onClick={() => {
+                        const details = document.getElementById('additional-details')
+                        if (details) {
+                          details.style.display = details.style.display === 'none' ? 'block' : 'none'
+                        }
+                      }}
+                    >
+                      Also... <ChevronDown className="h-4 w-4" />
+                    </Button>
+                    <div id="additional-details" style={{display: 'none'}} className="space-y-3">
+                      <p className="text-muted-foreground max-w-md mx-auto text-sm sm:text-base leading-relaxed">
+                        This works even offline! (Yes, this WEBsite!)
+                      </p>
+                      <p className="text-muted-foreground max-w-md mx-auto text-sm sm:text-base leading-relaxed">
+                        Don't worry, the links never leave your device. Nothing is "Uploaded". The only web interaction is to get a website icon.
+                      </p>
+                    </div>
                   </div>
 
                   <div className="flex flex-col sm:flex-row gap-3 justify-center items-center pt-4">
