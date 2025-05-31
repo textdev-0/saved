@@ -35,11 +35,11 @@ const DialogTrigger = ({ children, asChild, ...props }: { children: React.ReactN
   const { onOpenChange } = React.useContext(DialogContext)
   
   if (asChild && React.isValidElement(children)) {
-    return React.cloneElement(children, {
+    return React.cloneElement(children as React.ReactElement<any>, {
       ...props,
       onClick: (e: React.MouseEvent) => {
         onOpenChange(true)
-        children.props?.onClick?.(e)
+        ;(children as any).props?.onClick?.(e)
       },
     })
   }
