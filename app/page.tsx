@@ -3,7 +3,7 @@
 import type React from "react"
 
 import { useState, useEffect } from "react"
-import { Plus, ExternalLink, Edit2, Trash2, Moon, Sun, Type, Image, X, Star, GripVertical } from "lucide-react"
+import { Plus, ExternalLink, Edit2, Trash2, Moon, Sun, Type, Image, X, Star, GripVertical, Upload, Zap, BookOpen, Github, Twitter, Youtube, Globe, Lightbulb } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -42,6 +42,7 @@ export default function LinkManager() {
   const [mounted, setMounted] = useState(false)
   const [draggedItem, setDraggedItem] = useState<string | null>(null)
   const [dragOverItem, setDragOverItem] = useState<string | null>(null)
+  const [loadingIcons, setLoadingIcons] = useState<Set<string>>(new Set())
 
   // Register service worker
   useEffect(() => {
@@ -71,7 +72,16 @@ export default function LinkManager() {
 
       if (savedLinks) {
         try {
-          setLinks(JSON.parse(savedLinks))
+          const parsedLinks = JSON.parse(savedLinks)
+          setLinks(parsedLinks)
+          
+          // Set loading state for all links with external icon URLs
+          const linksWithExternalIcons = parsedLinks.filter((link: Link) => 
+            link.iconUrl && !link.iconUrl.startsWith('data:')
+          )
+          if (linksWithExternalIcons.length > 0) {
+            setLoadingIcons(new Set(linksWithExternalIcons.map((link: Link) => link.id)))
+          }
         } catch (error) {
           console.error("Error parsing saved links:", error)
         }
@@ -100,49 +110,139 @@ export default function LinkManager() {
   const generateFavicon = async (url: string) => {
     setIsGeneratingIcon(true)
     try {
-      // Try to get the domain from the URL
       const urlObj = new URL(url.startsWith("http") ? url : `https://${url}`)
       const domain = urlObj.hostname
       
-      // Try multiple favicon sources
+      // Comprehensive favicon fetching with 5 free fallback sources
+      // This approach mirrors how production apps like Dashy handle favicon fetching
+      // Each service has different strengths and coverage areas
       const faviconSources = [
-        `https://www.google.com/s2/favicons?domain=${domain}&sz=32`,
-        `https://${domain}/favicon.ico`,
-        `https://${domain}/favicon.png`,
-        `https://icons.duckduckgo.com/ip3/${domain}.ico`
+        {
+          name: "Google",
+          url: `https://www.google.com/s2/favicons?domain=${domain}&sz=32`,
+          description: "Google's favicon API"
+        },
+        {
+          name: "DuckDuckGo", 
+          url: `https://icons.duckduckgo.com/ip3/${domain}.ico`,
+          description: "DuckDuckGo icon service"
+        },
+        {
+          name: "Yandex",
+          url: `https://favicon.yandex.net/favicon/${domain}`,
+          description: "Yandex favicon service"
+        },
+        {
+          name: "Direct",
+          url: `https://${domain}/favicon.ico`,
+          description: "Direct domain favicon"
+        },
+        {
+          name: "Direct PNG",
+          url: `https://${domain}/favicon.png`, 
+          description: "Direct domain PNG favicon"
+        }
       ]
       
-      // Test the first source (Google's favicon service is most reliable)
-      const faviconUrl = faviconSources[0]
+      const tryFaviconSource = (sourceIndex: number): Promise<string | null> => {
+        return new Promise((resolve) => {
+          if (sourceIndex >= faviconSources.length) {
+            resolve(null)
+            return
+          }
+          
+          const source = faviconSources[sourceIndex]
+          let resolved = false
+          
+          // Update status message if it's a fallback
+          if (sourceIndex > 0) {
+            setNewLinkIcon(`Trying fallback (${sourceIndex}/5)...`)
+            setShowIcon(true)
+          }
+          
+          const testImg = document.createElement('img')
+          
+          const timeoutId = setTimeout(() => {
+            if (!resolved) {
+              testImg.onload = null
+              testImg.onerror = null
+              tryFaviconSource(sourceIndex + 1).then(resolve)
+            }
+          }, 2000) // 2 second timeout per source
+          
+          testImg.onload = () => {
+            if (!resolved) {
+              resolved = true
+              clearTimeout(timeoutId)
+              resolve(source.url)
+            }
+          }
+          testImg.onerror = () => {
+            if (!resolved) {
+              resolved = true
+              clearTimeout(timeoutId)
+              tryFaviconSource(sourceIndex + 1).then(resolve)
+            }
+          }
+          
+          testImg.src = source.url
+        })
+      }
       
-      // Test if the favicon loads
-      const img = new window.Image()
-      img.onload = () => {
-        setNewLinkIcon(faviconUrl)
+      const result = await tryFaviconSource(0)
+      
+      if (result) {
+        setNewLinkIcon(result)
         setShowIcon(true)
+        setIsGeneratingIcon(false)
+      } else {
+        console.warn("Could not load favicon for", domain, "- tried all sources")
+        setShowIcon(false)
+        setNewLinkIcon("")
+        setIsGeneratingIcon(false)
       }
-      img.onerror = () => {
-        // If Google's service fails, try DuckDuckGo
-        const fallbackImg = new window.Image()
-        fallbackImg.onload = () => {
-          setNewLinkIcon(faviconSources[3])
-          setShowIcon(true)
-        }
-        fallbackImg.onerror = () => {
-          console.warn("Could not load favicon for", domain)
-          setShowIcon(false)
-          setNewLinkIcon("")
-        }
-        fallbackImg.src = faviconSources[3]
-      }
-      img.src = faviconUrl
+      
     } catch (error) {
       console.error("Error generating favicon:", error)
       setShowIcon(false)
       setNewLinkIcon("")
-    } finally {
       setIsGeneratingIcon(false)
     }
+  }
+
+  const handleCustomIcon = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    // Check if it's an image file
+    if (!file.type.startsWith('image/')) {
+      alert('Please select an image file (PNG, JPG, SVG, etc.)')
+      return
+    }
+
+    // Check file size (limit to 2MB)
+    if (file.size > 2 * 1024 * 1024) {
+      alert('Please select an image smaller than 2MB')
+      return
+    }
+
+    // Clean up old icon if it was a data URL
+    if (showIcon && newLinkIcon?.startsWith('data:')) {
+      console.log('Replaced custom icon with new upload')
+    }
+
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      const dataUrl = e.target?.result as string
+      if (dataUrl) {
+        setNewLinkIcon(dataUrl)
+        setShowIcon(true)
+      }
+    }
+    reader.onerror = () => {
+      alert('Error reading the file. Please try again.')
+    }
+    reader.readAsDataURL(file)
   }
 
   const addLink = () => {
@@ -157,6 +257,11 @@ export default function LinkManager() {
       ...(showIcon && newLinkIcon ? { iconUrl: newLinkIcon } : {})
     }
 
+    // Set loading state for icons that aren't data URLs (uploaded images)
+    if (showIcon && newLinkIcon && !newLinkIcon.startsWith('data:')) {
+      setLoadingIcons(prev => new Set(prev).add(newLink.id))
+    }
+
     setLinks((prev) => [...prev, newLink])
     setNewLinkUrl("")
     setNewLinkName("")
@@ -167,6 +272,11 @@ export default function LinkManager() {
 
   const updateLink = () => {
     if (!editingLink || !newLinkUrl.trim() || !newLinkName.trim()) return
+
+    // Set loading state for new icons that aren't data URLs (uploaded images)
+    if (showIcon && newLinkIcon && !newLinkIcon.startsWith('data:') && newLinkIcon !== editingLink.iconUrl) {
+      setLoadingIcons(prev => new Set(prev).add(editingLink.id))
+    }
 
     setLinks((prev) =>
       prev.map((link) =>
@@ -188,6 +298,13 @@ export default function LinkManager() {
   }
 
   const deleteLink = (id: string) => {
+    // Clean up any data URL icons before deletion to prevent storage bloat
+    const linkToDelete = links.find(link => link.id === id)
+    if (linkToDelete?.iconUrl?.startsWith('data:')) {
+      // This was a custom uploaded icon - it's now being cleaned up automatically
+      console.log('Cleaned up custom icon for deleted link:', linkToDelete.displayName)
+    }
+    
     setLinks((prev) => prev.filter((link) => link.id !== id))
   }
 
@@ -260,15 +377,13 @@ export default function LinkManager() {
     setEditingLink(null)
     setNewLinkUrl("")
     setNewLinkName("")
-    setNewLinkIcon("")
-    setShowIcon(false)
+    clearIcon()
   }
 
   const closeAddDialog = () => {
     setNewLinkUrl("")
     setNewLinkName("")
-    setNewLinkIcon("")
-    setShowIcon(false)
+    clearIcon()
     setIsAddDialogOpen(false)
   }
 
@@ -286,6 +401,50 @@ export default function LinkManager() {
     if (!a.starred && b.starred) return 1
     return (a.order || 0) - (b.order || 0)
   })
+
+  const clearIcon = () => {
+    // Clean up data URL if it was a custom uploaded icon
+    if (showIcon && newLinkIcon?.startsWith('data:')) {
+      console.log('Manually removed custom icon')
+    }
+    setShowIcon(false)
+    setNewLinkIcon("")
+  }
+
+  const getStorageInfo = () => {
+    try {
+      const linksData = localStorage.getItem("linkManager_links")
+      if (!linksData) return { size: 0, customIcons: 0 }
+      
+      const sizeInBytes = new Blob([linksData]).size
+      const sizeInKB = Math.round(sizeInBytes / 1024 * 10) / 10
+      
+      // Count custom icons (data URLs)
+      const customIcons = links.filter(link => link.iconUrl?.startsWith('data:')).length
+      
+      return { size: sizeInKB, customIcons }
+    } catch {
+      return { size: 0, customIcons: 0 }
+    }
+  }
+
+  const addSampleLink = (url: string, name: string, iconUrl?: string) => {
+    const newLink: Link = {
+      id: Date.now().toString(),
+      url: url.startsWith("http") ? url : `https://${url}`,
+      displayName: name,
+      starred: false,
+      order: links.length,
+      ...(iconUrl ? { iconUrl } : {})
+    }
+
+    // Set loading state for external icon URLs
+    if (iconUrl && !iconUrl.startsWith('data:')) {
+      setLoadingIcons(prev => new Set(prev).add(newLink.id))
+    }
+
+    setLinks((prev) => [...prev, newLink])
+  }
 
   if (!mounted) {
     return null
@@ -305,19 +464,21 @@ export default function LinkManager() {
 
             <div className="flex items-center justify-center sm:justify-end gap-2 flex-wrap">
               {/* Font Selector */}
-              <Select value={selectedFont} onValueChange={setSelectedFont}>
-                <SelectTrigger className="w-[120px] sm:w-[140px]" aria-label="Select font">
-                  <Type className="h-4 w-4 mr-2" />
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {FONT_OPTIONS.map((font) => (
-                    <SelectItem key={font.value} value={font.value} className={font.className}>
-                      {font.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <div className="relative">
+                <Select value={selectedFont} onValueChange={setSelectedFont}>
+                  <SelectTrigger className="w-[120px] sm:w-[140px]" aria-label="Select font">
+                    <Type className="h-4 w-4 mr-2" />
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {FONT_OPTIONS.map((font) => (
+                      <SelectItem key={font.value} value={font.value} className={font.className}>
+                        {font.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
 
               {/* Theme Toggle */}
               <Button
@@ -373,41 +534,70 @@ export default function LinkManager() {
                         {showIcon && newLinkIcon ? (
                           <div className="flex items-center gap-2">
                             <div className="flex items-center gap-2 px-2 py-1 border rounded-md">
-                              <img 
-                                src={newLinkIcon} 
-                                alt="Favicon" 
-                                className="w-4 h-4 rounded-sm"
-                                onError={() => {
-                                  setShowIcon(false)
-                                  setNewLinkIcon("")
-                                }}
-                              />
-                              <span className="text-sm text-muted-foreground hidden sm:inline">Icon loaded</span>
+                              {newLinkIcon.startsWith('Trying fallback') ? (
+                                <>
+                                  <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin flex-shrink-0" />
+                                  <span className="text-sm text-muted-foreground">{newLinkIcon}</span>
+                                </>
+                              ) : (
+                                <>
+                                  <img 
+                                    src={newLinkIcon} 
+                                    alt="Favicon" 
+                                    className="w-4 h-4 rounded-sm"
+                                    onError={() => {
+                                      // Icon failed to load, remove it
+                                      setShowIcon(false)
+                                      setNewLinkIcon("")
+                                    }}
+                                  />
+                                  <span className="text-sm text-muted-foreground hidden sm:inline">Icon loaded</span>
+                                </>
+                              )}
                               <Button
                                 variant="ghost"
                                 size="icon"
                                 className="h-4 w-4 p-0"
-                                onClick={() => {
-                                  setShowIcon(false)
-                                  setNewLinkIcon("")
-                                }}
+                                onClick={clearIcon}
                               >
                                 <X className="h-3 w-3" />
                               </Button>
                             </div>
                           </div>
                         ) : (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => newLinkUrl && generateFavicon(newLinkUrl)}
-                            disabled={!newLinkUrl || isGeneratingIcon}
-                            className="gap-2 text-xs sm:text-sm"
-                          >
-                            <Image className="h-4 w-4" />
-                            <span className="hidden sm:inline">{isGeneratingIcon ? "Generating..." : "Generate Icon"}</span>
-                            <span className="inline sm:hidden">{isGeneratingIcon ? "..." : "Icon"}</span>
-                          </Button>
+                          <div className="flex gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => newLinkUrl && generateFavicon(newLinkUrl)}
+                              disabled={!newLinkUrl || isGeneratingIcon}
+                              className="gap-2 text-xs sm:text-sm"
+                            >
+                              <Image className="h-4 w-4" />
+                              <span className="hidden sm:inline">{isGeneratingIcon ? "Generating..." : "Generate Icon"}</span>
+                              <span className="inline sm:hidden">{isGeneratingIcon ? "..." : "Icon"}</span>
+                            </Button>
+                            <div className="relative">
+                              <input
+                                type="file"
+                                accept="image/*"
+                                onChange={handleCustomIcon}
+                                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                                id="add-custom-icon"
+                              />
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="gap-2 text-xs sm:text-sm"
+                                asChild
+                              >
+                                <label htmlFor="add-custom-icon" className="cursor-pointer flex items-center gap-2">
+                                  <Upload className="h-4 w-4" />
+                                  <span className="hidden sm:inline">Upload</span>
+                                </label>
+                              </Button>
+                            </div>
+                          </div>
                         )}
                       </div>
                     </div>
@@ -428,15 +618,51 @@ export default function LinkManager() {
 
           {/* Links Grid */}
           {sortedLinks.length === 0 ? (
-            <Card className="text-center py-8 sm:py-12">
-              <CardContent>
-                <div className="text-muted-foreground">
-                  <ExternalLink className="h-8 w-8 sm:h-12 sm:w-12 mx-auto mb-4 opacity-50" />
-                  <h3 className="text-base sm:text-lg font-semibold mb-2">No links yet</h3>
-                  <p className="text-sm sm:text-base">Add your first link to get started organizing your collection.</p>
-                </div>
-              </CardContent>
-            </Card>
+            <div className="space-y-6">
+              {/* Main Empty State Card */}
+              <Card className="text-center py-12 sm:py-16 bg-gradient-to-br from-background to-muted/20 border-dashed border-2">
+                <CardContent className="space-y-6">
+                  <div className="relative">
+                    <div className="absolute inset-0 bg-gradient-to-r from-blue-500/10 to-purple-500/10 rounded-full blur-3xl transform -translate-y-4"></div>
+                    <div className="relative bg-primary/10 w-20 h-20 sm:w-24 sm:h-24 rounded-2xl mx-auto flex items-center justify-center">
+                      <ExternalLink className="h-8 w-8 sm:h-10 sm:w-10 text-primary" />
+                    </div>
+                  </div>
+                  
+                  <div className="space-y-3">
+                    <h3 className="text-xl sm:text-2xl font-bold text-foreground">Welcome to Link Manager!</h3>
+                    <p className="text-muted-foreground max-w-md mx-auto text-sm sm:text-base leading-relaxed">
+                      Start building your personal link collection. Organize your favorite websites, tools, and resources in one place.
+                    </p>
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row gap-3 justify-center items-center pt-4">
+                    <Button 
+                      onClick={() => setIsAddDialogOpen(true)}
+                      size="lg"
+                      className="gap-2 px-6 sm:px-8"
+                    >
+                      <Plus className="h-5 w-5" />
+                      Add Your First Link
+                    </Button>
+                    <Button variant="outline" size="lg" className="gap-2" onClick={() => {
+                      const quickLinks = [
+                        { url: "https://github.com", name: "GitHub", icon: "https://www.google.com/s2/favicons?domain=github.com&sz=64" },
+                        { url: "https://google.com", name: "Google", icon: "https://www.google.com/s2/favicons?domain=google.com&sz=64" },
+                        { url: "https://youtube.com", name: "YouTube", icon: "https://www.google.com/s2/favicons?domain=youtube.com&sz=64" }
+                      ]
+                      quickLinks.forEach((link, index) => {
+                        setTimeout(() => addSampleLink(link.url, link.name, link.icon), index * 100)
+                      })
+                    }}>
+                      <Zap className="h-4 w-4" />
+                      <span className="hidden sm:inline">Add Sample Links</span>
+                      <span className="inline sm:hidden">Samples</span>
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
           ) : (
             <div className="grid gap-3 sm:gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
               {sortedLinks.map((link) => (
@@ -456,69 +682,96 @@ export default function LinkManager() {
                   onDrop={(e) => handleDrop(e, link.id)}
                   onDragEnd={handleDragEnd}
                 >
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-sm sm:text-base flex items-center justify-between">
-                      <div className="flex items-center gap-2 truncate mr-2 min-w-0 flex-1">
-                        <GripVertical className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
-                        {link.iconUrl && (
-                          <img 
-                            src={link.iconUrl} 
-                            alt="Site icon" 
-                            className="w-4 h-4 rounded-sm flex-shrink-0"
-                            onError={(e) => {
-                              e.currentTarget.style.display = 'none'
-                            }}
-                          />
-                        )}
-                        <span className="truncate">{link.displayName}</span>
-                        {link.starred && (
-                          <Star className="h-3 w-3 text-yellow-500 fill-yellow-500 flex-shrink-0" />
-                        )}
-                      </div>
-                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className={`h-7 w-7 sm:h-8 sm:w-8 ${
-                            link.starred ? 'text-yellow-500 hover:text-yellow-600' : 'hover:text-yellow-500'
-                          }`}
-                          onClick={() => toggleStar(link.id)}
-                          aria-label={`${link.starred ? 'Unstar' : 'Star'} ${link.displayName}`}
-                        >
-                          <Star className={`h-3 w-3 ${link.starred ? 'fill-current' : ''}`} />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7 sm:h-8 sm:w-8"
-                          onClick={() => openEditDialog(link)}
-                          aria-label={`Edit ${link.displayName}`}
-                        >
-                          <Edit2 className="h-3 w-3" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7 sm:h-8 sm:w-8 text-destructive hover:text-destructive"
-                          onClick={() => deleteLink(link.id)}
-                          aria-label={`Delete ${link.displayName}`}
-                        >
-                          <Trash2 className="h-3 w-3" />
-                        </Button>
-                      </div>
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="pt-0">
-                    <a
-                      href={link.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-xs sm:text-sm text-muted-foreground hover:text-foreground transition-colors flex items-center gap-2 group/link"
+                                  <CardHeader className="pb-0">
+                  <CardTitle className="text-sm sm:text-base">
+                    <div className="flex items-center gap-2 truncate min-w-0 flex-1">
+                      <GripVertical className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
+                      {(link.iconUrl || loadingIcons.has(link.id)) && (
+                        <div className="w-4 h-4 flex-shrink-0 relative">
+                          {loadingIcons.has(link.id) && (
+                            <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                          )}
+                          {link.iconUrl && (
+                            <img 
+                              src={link.iconUrl} 
+                              alt="Site icon" 
+                              className="w-4 h-4 rounded-sm"
+                              onLoad={() => {
+                                setLoadingIcons(prev => {
+                                  const newSet = new Set(prev)
+                                  newSet.delete(link.id)
+                                  return newSet
+                                })
+                              }}
+                              onError={(e) => {
+                                // Icon failed to load, hide it and remove from data
+                                e.currentTarget.style.display = 'none'
+                                setLoadingIcons(prev => {
+                                  const newSet = new Set(prev)
+                                  newSet.delete(link.id)
+                                  return newSet
+                                })
+                                setLinks(prev => prev.map(l => 
+                                  l.id === link.id ? { ...l, iconUrl: undefined } : l
+                                ))
+                              }}
+                              style={{ display: loadingIcons.has(link.id) ? 'none' : 'block' }}
+                            />
+                          )}
+                        </div>
+                      )}
+                      <span className="truncate">{link.displayName}</span>
+                      {link.starred && (
+                        <Star className="h-3 w-3 text-yellow-500 fill-yellow-500 flex-shrink-0" />
+                      )}
+                    </div>
+                  </CardTitle>
+                  <div className="flex items-center gap-1 mt-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className={`h-8 px-1.5 text-xs ${
+                        link.starred ? 'text-yellow-500 hover:text-yellow-600' : 'hover:text-yellow-500'
+                      }`}
+                      onClick={() => toggleStar(link.id)}
+                      aria-label={`${link.starred ? 'Unstar' : 'Star'} ${link.displayName}`}
                     >
-                      <span className="truncate">{link.url}</span>
-                      <ExternalLink className="h-3 w-3 flex-shrink-0 opacity-0 group-hover/link:opacity-100 transition-opacity" />
-                    </a>
-                  </CardContent>
+                      <Star className={`h-4 w-4 mr-1 ${link.starred ? 'fill-current' : ''}`} />
+                      Star
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 px-1.5 text-xs"
+                      onClick={() => openEditDialog(link)}
+                      aria-label={`Edit ${link.displayName}`}
+                    >
+                      <Edit2 className="h-4 w-4 mr-1" />
+                      Edit
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 px-1.5 text-xs text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
+                      onClick={() => deleteLink(link.id)}
+                      aria-label={`Delete ${link.displayName}`}
+                    >
+                      <Trash2 className="h-4 w-4 mr-1" />
+                      Delete
+                    </Button>
+                  </div>
+                </CardHeader>
+                                <CardContent className="pt-0">
+                  <a
+                    href={link.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs sm:text-sm text-muted-foreground hover:text-foreground transition-colors flex items-center gap-2 group/link"
+                  >
+                    <span className="truncate">{link.url}</span>
+                    <ExternalLink className="h-3 w-3 flex-shrink-0 opacity-0 group-hover/link:opacity-100 transition-opacity" />
+                  </a>
+                </CardContent>
                 </Card>
               ))}
             </div>
@@ -561,41 +814,70 @@ export default function LinkManager() {
                     {showIcon && newLinkIcon ? (
                       <div className="flex items-center gap-2">
                         <div className="flex items-center gap-2 px-2 py-1 border rounded-md">
-                          <img 
-                            src={newLinkIcon} 
-                            alt="Favicon" 
-                            className="w-4 h-4 rounded-sm"
-                            onError={() => {
-                              setShowIcon(false)
-                              setNewLinkIcon("")
-                            }}
-                          />
-                          <span className="text-sm text-muted-foreground hidden sm:inline">Icon loaded</span>
+                          {newLinkIcon.startsWith('Trying fallback') ? (
+                            <>
+                              <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin flex-shrink-0" />
+                              <span className="text-sm text-muted-foreground">{newLinkIcon}</span>
+                            </>
+                          ) : (
+                            <>
+                              <img 
+                                src={newLinkIcon} 
+                                alt="Favicon" 
+                                className="w-4 h-4 rounded-sm"
+                                onError={() => {
+                                  // Icon failed to load, remove it
+                                  setShowIcon(false)
+                                  setNewLinkIcon("")
+                                }}
+                              />
+                              <span className="text-sm text-muted-foreground hidden sm:inline">Icon loaded</span>
+                            </>
+                          )}
                           <Button
                             variant="ghost"
                             size="icon"
                             className="h-4 w-4 p-0"
-                            onClick={() => {
-                              setShowIcon(false)
-                              setNewLinkIcon("")
-                            }}
+                            onClick={clearIcon}
                           >
                             <X className="h-3 w-3" />
                           </Button>
                         </div>
                       </div>
                     ) : (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => newLinkUrl && generateFavicon(newLinkUrl)}
-                        disabled={!newLinkUrl || isGeneratingIcon}
-                        className="gap-2 text-xs sm:text-sm"
-                      >
-                        <Image className="h-4 w-4" />
-                        <span className="hidden sm:inline">{isGeneratingIcon ? "Generating..." : "Generate Icon"}</span>
-                        <span className="inline sm:hidden">{isGeneratingIcon ? "..." : "Icon"}</span>
-                      </Button>
+                      <div className="flex gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => newLinkUrl && generateFavicon(newLinkUrl)}
+                          disabled={!newLinkUrl || isGeneratingIcon}
+                          className="gap-2 text-xs sm:text-sm"
+                        >
+                          <Image className="h-4 w-4" />
+                          <span className="hidden sm:inline">{isGeneratingIcon ? "Generating..." : "Generate Icon"}</span>
+                          <span className="inline sm:hidden">{isGeneratingIcon ? "..." : "Icon"}</span>
+                        </Button>
+                        <div className="relative">
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={handleCustomIcon}
+                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                            id="edit-custom-icon"
+                          />
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="gap-2 text-xs sm:text-sm"
+                            asChild
+                          >
+                            <label htmlFor="edit-custom-icon" className="cursor-pointer flex items-center gap-2">
+                              <Upload className="h-4 w-4" />
+                              <span className="hidden sm:inline">Upload</span>
+                            </label>
+                          </Button>
+                        </div>
+                      </div>
                     )}
                   </div>
                 </div>
@@ -612,17 +894,47 @@ export default function LinkManager() {
             </DialogContent>
           </Dialog>
 
-          {/* Stats */}
-          {sortedLinks.length > 0 && (
-            <div className="mt-6 sm:mt-8 text-center text-xs sm:text-sm text-muted-foreground">
-              Managing {sortedLinks.length} {sortedLinks.length === 1 ? "link" : "links"}
-              {sortedLinks.filter(link => link.starred).length > 0 && (
-                <span className="ml-2">
-                  • {sortedLinks.filter(link => link.starred).length} starred
-                </span>
+          {/* Stats - Always Visible */}
+          <div className="mt-6 sm:mt-8 text-center text-xs sm:text-sm text-muted-foreground space-y-1">
+            <div>
+              {sortedLinks.length > 0 ? (
+                <>
+                  Managing {sortedLinks.length} {sortedLinks.length === 1 ? "link" : "links"}
+                  {sortedLinks.filter(link => link.starred).length > 0 && (
+                    <span className="ml-2">
+                      • {sortedLinks.filter(link => link.starred).length} starred
+                    </span>
+                  )}
+                </>
+              ) : (
+                "No links yet - start by adding your first link"
               )}
             </div>
-          )}
+            {(() => {
+              const storageInfo = getStorageInfo()
+              const totalIcons = links.length > 0 ? links.filter(link => link.iconUrl).length : 0
+              const customIcons = storageInfo.customIcons
+              const externalIcons = totalIcons - customIcons
+              
+              return (
+                <div className="flex items-center justify-center gap-4 text-xs">
+                  <span>Storage: {storageInfo.size}KB</span>
+                  {totalIcons > 0 && (
+                    <>
+                      <span>•</span>
+                      <span>Icons: {totalIcons} total</span>
+                      {customIcons > 0 && (
+                        <>
+                          <span>•</span>
+                          <span>{customIcons} uploaded, {externalIcons} external</span>
+                        </>
+                      )}
+                    </>
+                  )}
+                </div>
+              )
+            })()}
+          </div>
         </div>
       </div>
     </>
