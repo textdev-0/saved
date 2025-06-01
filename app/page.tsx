@@ -11,7 +11,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useTheme } from "next-themes"
-import { OfflineToast } from "@/components/offline-toast"
 
 interface Link {
   id: string
@@ -43,25 +42,6 @@ export default function LinkManager() {
   const [draggedItem, setDraggedItem] = useState<string | null>(null)
   const [dragOverItem, setDragOverItem] = useState<string | null>(null)
   const [loadingIcons, setLoadingIcons] = useState<Set<string>>(new Set())
-
-  // AGGRESSIVE SW REGISTRATION LOGGING START
-  useEffect(() => {
-    console.log('[SW RLog] Attempting Service Worker registration...'); // New Log
-    if ('serviceWorker' in navigator) {
-      console.log('[SW RLog] navigator.serviceWorker is AVAILABLE.'); // New Log
-      // Removing window.addEventListener('load') for immediate registration attempt during testing
-      navigator.serviceWorker.register('/sw.js', { scope: '/' }) // Explicitly set scope
-        .then((registration) => {
-          console.log('[SW RLog] SUCCESS! Service Worker registered with scope:', registration.scope);
-        })
-        .catch((error) => {
-          console.error('[SW RLog] FATAL: Service Worker registration FAILED:', error);
-        });
-    } else {
-      console.warn('[SW RLog] WARNING: navigator.serviceWorker is NOT AVAILABLE in this browser.');
-    }
-  }, []);
-  // AGGRESSIVE SW REGISTRATION LOGGING END
 
   // Handle hydration
   useEffect(() => {
@@ -456,7 +436,6 @@ export default function LinkManager() {
 
   return (
     <>
-      <OfflineToast />
       <div className={`min-h-screen bg-background transition-colors duration-700 ${currentFontClass}`}>
         <div className="container mx-auto px-3 sm:px-4 py-4 sm:py-8 max-w-4xl">
           {/* Header */}
@@ -653,10 +632,7 @@ export default function LinkManager() {
                     </Button>
                     <div id="additional-details" style={{display: 'none'}} className="space-y-3">
                       <p className="text-muted-foreground max-w-md mx-auto text-sm sm:text-base leading-relaxed">
-                        This works even offline! (Yes, this WEBsite!)
-                      </p>
-                      <p className="text-muted-foreground max-w-md mx-auto text-sm sm:text-base leading-relaxed">
-                        Don't worry, the links never leave your device. Nothing is "Uploaded". The only web interaction is to get a website icon.
+                        Don't worry, the links never leave your device. Nothing is "Uploaded" to a web server, only to your device. The only web interaction is to get a website icon.
                       </p>
                     </div>
                   </div>
