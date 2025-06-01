@@ -2,8 +2,8 @@
 
 import type React from "react"
 
-import { useState, useEffect } from "react"
-import { Plus, ExternalLink, Edit2, Trash2, Moon, Sun, Type, Image, X, Star, GripVertical, Upload, Zap, BookOpen, Github, Twitter, Youtube, Globe, Lightbulb, ChevronDown } from "lucide-react"
+import { useState, useEffect, useRef } from "react"
+import { Plus, ExternalLink, Edit2, Trash2, Moon, Sun, Type, Image, X, Star, GripVertical, Upload, Zap, BookOpen, Github, Twitter, Youtube, Globe, Lightbulb, ChevronDown, Search } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -11,6 +11,33 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useTheme } from "next-themes"
+
+// Manual CRC64 implementation using ISO polynomial (0x42F0E1EBA9EA3693)
+// Based on the algorithm from https://www.sunshine2k.de/articles/coding/crc/understanding_crc.html
+function crc64(data: string): string {
+  // CRC64-ISO polynomial: 0x42F0E1EBA9EA3693
+  // Using a simplified polynomial for performance: 0x42F0E1EBA9EA3693
+  const POLY = BigInt('0x42F0E1EBA9EA3693')
+  const INIT = BigInt('0xFFFFFFFFFFFFFFFF')
+  const XOROUT = BigInt('0xFFFFFFFFFFFFFFFF')
+  
+  let crc = INIT
+  const bytes = new TextEncoder().encode(data)
+  
+  for (let i = 0; i < bytes.length; i++) {
+    crc = crc ^ BigInt(bytes[i])
+    
+    for (let j = 0; j < 8; j++) {
+      if (crc & BigInt(1)) {
+        crc = (crc >> BigInt(1)) ^ POLY
+      } else {
+        crc = crc >> BigInt(1)
+      }
+    }
+  }
+  
+  return ((crc ^ XOROUT) & BigInt('0xFFFFFFFFFFFFFFFF')).toString(16).toUpperCase().padStart(16, '0')
+}
 
 interface Link {
   id: string
@@ -42,6 +69,10 @@ export default function LinkManager() {
   const [draggedItem, setDraggedItem] = useState<string | null>(null)
   const [dragOverItem, setDragOverItem] = useState<string | null>(null)
   const [loadingIcons, setLoadingIcons] = useState<Set<string>>(new Set())
+  const [activeTab, setActiveTab] = useState<"all" | "favourites" | "unstarred">("all")
+  const [searchQuery, setSearchQuery] = useState("")
+  const tabSwitcherRef = useRef<HTMLDivElement>(null)
+  const [tabSwitcherWidth, setTabSwitcherWidth] = useState<number>(0)
 
   // Handle hydration
   useEffect(() => {
@@ -90,6 +121,28 @@ export default function LinkManager() {
       localStorage.setItem("linkManager_font", selectedFont)
     }
   }, [selectedFont, mounted])
+
+  // Update search bar width when tab switcher size changes
+  useEffect(() => {
+    if (!tabSwitcherRef.current) return
+
+    const updateWidth = () => {
+      if (tabSwitcherRef.current) {
+        setTabSwitcherWidth(tabSwitcherRef.current.offsetWidth)
+      }
+    }
+
+    // Initial width calculation
+    updateWidth()
+
+    // Use ResizeObserver to watch for size changes
+    const resizeObserver = new ResizeObserver(updateWidth)
+    resizeObserver.observe(tabSwitcherRef.current)
+
+    return () => {
+      resizeObserver.disconnect()
+    }
+  }, [mounted, links, loadingIcons]) // Re-run when links or loading state changes
 
   const generateFavicon = async (url: string) => {
     setIsGeneratingIcon(true)
@@ -379,8 +432,27 @@ export default function LinkManager() {
 
   const currentFontClass = FONT_OPTIONS.find((font) => font.value === selectedFont)?.className || "font-mono"
 
-  // Sort links: starred first, then by order
-  const sortedLinks = [...links].sort((a, b) => {
+  // Filter and sort links based on active tab and search
+  const filteredLinks = links.filter((link) => {
+    // First apply tab filter
+    let passesTabFilter = true
+    if (activeTab === "favourites") passesTabFilter = !!link.starred
+    if (activeTab === "unstarred") passesTabFilter = !link.starred
+    
+    // Then apply search filter if there's a query
+    let passesSearchFilter = true
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase()
+      passesSearchFilter = (
+        link.displayName.toLowerCase().includes(query) ||
+        link.url.toLowerCase().includes(query)
+      )
+    }
+    
+    return passesTabFilter && passesSearchFilter
+  })
+
+  const sortedLinks = [...filteredLinks].sort((a, b) => {
     if (a.starred && !b.starred) return -1
     if (!a.starred && b.starred) return 1
     return (a.order || 0) - (b.order || 0)
@@ -412,12 +484,12 @@ export default function LinkManager() {
     }
   }
 
-  const addSampleLink = (url: string, name: string, iconUrl?: string) => {
+  const addSampleLink = (url: string, name: string, iconUrl?: string, starred: boolean = false) => {
     const newLink: Link = {
       id: Date.now().toString(),
       url: url.startsWith("http") ? url : `https://${url}`,
       displayName: name,
-      starred: false,
+      starred: starred,
       order: links.length,
       ...(iconUrl ? { iconUrl } : {})
     }
@@ -429,6 +501,18 @@ export default function LinkManager() {
 
     setLinks((prev) => [...prev, newLink])
   }
+
+  const getLinkCRC64 = (link: Link): string => {
+    // Only hash the actual content, not dynamic fields like id/order
+    const contentObject = {
+      displayName: link.displayName,
+      iconUrl: link.iconUrl || null, // normalize undefined to null for consistency
+      starred: link.starred || false, // normalize undefined to false
+      url: link.url,
+    };
+    const linkJson = JSON.stringify(contentObject);
+    return crc64(linkJson).toUpperCase();
+  };
 
   if (!mounted) {
     return null
@@ -596,11 +680,78 @@ export default function LinkManager() {
                   </div>
                 </DialogContent>
               </Dialog>
+                      </div>
+        </div>
+
+        {/* Tab Switcher & Search - Merged */}
+        {links.length > 0 && (
+          <div className="flex flex-col items-center mb-6">
+            <div className="bg-muted rounded-lg p-1 border border-muted-foreground/30">
+              {/* Tab Switcher */}
+              <div 
+                ref={tabSwitcherRef}
+                className="inline-flex items-center"
+              >
+                <button
+                  onClick={() => setActiveTab("all")}
+                  className={`px-4 py-2 text-sm font-medium rounded-md transition-all ${
+                    activeTab === "all"
+                      ? "bg-background text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  All ({links.length})
+                </button>
+                <button
+                  onClick={() => setActiveTab("favourites")}
+                  className={`px-4 py-2 text-sm font-medium rounded-md transition-all ${
+                    activeTab === "favourites"
+                      ? "bg-background text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  Favourites ({links.filter(link => link.starred).length})
+                </button>
+                <button
+                  onClick={() => setActiveTab("unstarred")}
+                  className={`px-4 py-2 text-sm font-medium rounded-md transition-all ${
+                    activeTab === "unstarred"
+                      ? "bg-background text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  Unstarred ({links.filter(link => !link.starred).length})
+                </button>
+              </div>
+              
+              {/* Subtle divider */}
+              <div className="h-px bg-muted-foreground/30 mx-1 my-1"></div>
+              
+              {/* Search Bar - seamlessly merged */}
+              <div className="flex items-center gap-3 px-4 py-2">
+                <Search className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                <input
+                  type="text"
+                  placeholder="Search links by name or URL..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="flex-1 bg-transparent border-none outline-none text-sm placeholder:text-muted-foreground text-foreground"
+                />
+                {searchQuery && (
+                  <button
+                    onClick={() => setSearchQuery("")}
+                    className="flex-shrink-0 p-1 rounded-md hover:bg-background/50 transition-colors"
+                  >
+                    <X className="h-3 w-3 text-muted-foreground hover:text-foreground" />
+                  </button>
+                )}
+              </div>
             </div>
           </div>
+        )}
 
-          {/* Links Grid */}
-          {sortedLinks.length === 0 ? (
+        {/* Links Grid */}
+          {links.length === 0 ? (
             <div className="space-y-6">
               {/* Main Empty State Card */}
               <Card className="text-center py-12 sm:py-16 bg-gradient-to-br from-background to-muted/20 border-dashed border-2">
@@ -648,12 +799,12 @@ export default function LinkManager() {
                     </Button>
                     <Button variant="outline" size="lg" className="gap-2" onClick={() => {
                       const quickLinks = [
-                        { url: "https://github.com", name: "GitHub", icon: "https://www.google.com/s2/favicons?domain=github.com&sz=64" },
-                        { url: "https://google.com", name: "Google", icon: "https://www.google.com/s2/favicons?domain=google.com&sz=64" },
-                        { url: "https://youtube.com", name: "YouTube", icon: "https://www.google.com/s2/favicons?domain=youtube.com&sz=64" }
+                        { url: "https://github.com", name: "GitHub", icon: "https://www.google.com/s2/favicons?domain=github.com&sz=64", starred: true },
+                        { url: "https://google.com", name: "Google", icon: "https://www.google.com/s2/favicons?domain=google.com&sz=64", starred: false },
+                        { url: "https://youtube.com", name: "YouTube", icon: "https://www.google.com/s2/favicons?domain=youtube.com&sz=64", starred: false }
                       ]
                       quickLinks.forEach((link, index) => {
-                        setTimeout(() => addSampleLink(link.url, link.name, link.icon), index * 100)
+                        setTimeout(() => addSampleLink(link.url, link.name, link.icon, link.starred), index * 100)
                       })
                     }}>
                       <Zap className="h-4 w-4" />
@@ -663,6 +814,36 @@ export default function LinkManager() {
                   </div>
                 </CardContent>
               </Card>
+            </div>
+          ) : sortedLinks.length === 0 ? (
+            <div className="text-center py-12">
+              <div className="space-y-4">
+                <div className="relative">
+                  <div className="bg-primary/10 w-16 h-16 rounded-2xl mx-auto flex items-center justify-center">
+                    <Search className="h-6 w-6 text-primary" />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <h3 className="text-lg font-semibold text-foreground">No results found</h3>
+                  <p className="text-muted-foreground text-sm">
+                    {searchQuery ? (
+                      <>No links match "<span className="font-medium">{searchQuery}</span>"</>
+                    ) : (
+                      <>No links in the {activeTab === "favourites" ? "favourites" : "unstarred"} category</>
+                    )}
+                  </p>
+                  {searchQuery && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setSearchQuery("")}
+                      className="mt-4"
+                    >
+                      Clear search
+                    </Button>
+                  )}
+                </div>
+              </div>
             </div>
           ) : (
             <div className="grid gap-3 sm:gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
@@ -683,96 +864,103 @@ export default function LinkManager() {
                   onDrop={(e) => handleDrop(e, link.id)}
                   onDragEnd={handleDragEnd}
                 >
-                                  <CardHeader className="pb-0">
-                  <CardTitle className="text-sm sm:text-base">
-                    <div className="flex items-center gap-2 truncate min-w-0 flex-1">
+                  <CardHeader className="pb-0 relative">
+                    <div className="absolute top-6 left-6">
                       <GripVertical className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
-                      {(link.iconUrl || loadingIcons.has(link.id)) && (
-                        <div className="w-4 h-4 flex-shrink-0 relative">
-                          {loadingIcons.has(link.id) && (
-                            <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-                          )}
-                          {link.iconUrl && (
-                            <img 
-                              src={link.iconUrl} 
-                              alt="Site icon" 
-                              className="w-4 h-4 rounded-sm"
-                              onLoad={() => {
-                                setLoadingIcons(prev => {
-                                  const newSet = new Set(prev)
-                                  newSet.delete(link.id)
-                                  return newSet
-                                })
-                              }}
-                              onError={(e) => {
-                                // Icon failed to load, hide it and remove from data
-                                e.currentTarget.style.display = 'none'
-                                setLoadingIcons(prev => {
-                                  const newSet = new Set(prev)
-                                  newSet.delete(link.id)
-                                  return newSet
-                                })
-                                setLinks(prev => prev.map(l => 
-                                  l.id === link.id ? { ...l, iconUrl: undefined } : l
-                                ))
-                              }}
-                              style={{ display: loadingIcons.has(link.id) ? 'none' : 'block' }}
-                            />
-                          )}
-                        </div>
-                      )}
-                      <span className="truncate">{link.displayName}</span>
-                      {link.starred && (
-                        <Star className="h-3 w-3 text-yellow-500 fill-yellow-500 flex-shrink-0" />
-                      )}
                     </div>
-                  </CardTitle>
-                  <div className="flex items-center gap-1 mt-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className={`h-8 px-1.5 text-xs ${
-                        link.starred ? 'text-yellow-500 hover:text-yellow-600' : 'hover:text-yellow-500'
-                      }`}
-                      onClick={() => toggleStar(link.id)}
-                      aria-label={`${link.starred ? 'Unstar' : 'Star'} ${link.displayName}`}
+                    <CardTitle className="text-sm sm:text-base pl-6">
+                      <div className="flex items-center gap-2 truncate min-w-0 flex-1">
+                        {(link.iconUrl || loadingIcons.has(link.id)) && (
+                          <div className="w-4 h-4 flex-shrink-0 relative">
+                            {loadingIcons.has(link.id) && (
+                              <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                            )}
+                            {link.iconUrl && (
+                              <img 
+                                src={link.iconUrl} 
+                                alt="Site icon" 
+                                className="w-4 h-4 rounded-sm"
+                                onLoad={() => {
+                                  setLoadingIcons(prev => {
+                                    const newSet = new Set(prev)
+                                    newSet.delete(link.id)
+                                    return newSet
+                                  })
+                                }}
+                                onError={(e) => {
+                                  // Icon failed to load, hide it and remove from data
+                                  e.currentTarget.style.display = 'none'
+                                  setLoadingIcons(prev => {
+                                    const newSet = new Set(prev)
+                                    newSet.delete(link.id)
+                                    return newSet
+                                  })
+                                  setLinks(prev => prev.map(l => 
+                                    l.id === link.id ? { ...l, iconUrl: undefined } : l
+                                  ))
+                                }}
+                                style={{ display: loadingIcons.has(link.id) ? 'none' : 'block' }}
+                              />
+                            )}
+                          </div>
+                        )}
+                        <span className="truncate">{link.displayName}</span>
+                        {link.starred && (
+                          <Star className="h-3 w-3 text-yellow-500 fill-yellow-500 flex-shrink-0" />
+                        )}
+                      </div>
+                    </CardTitle>
+                    <div className="relative mt-1 h-8">
+                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className={`h-8 px-1.5 text-xs ${
+                            link.starred ? 'text-yellow-500 hover:text-yellow-600' : 'hover:text-yellow-500'
+                          }`}
+                          onClick={() => toggleStar(link.id)}
+                          aria-label={`${link.starred ? 'Unstar' : 'Star'} ${link.displayName}`}
+                        >
+                          <Star className={`h-4 w-4 mr-1 ${link.starred ? 'fill-current' : ''}`} />
+                          Star
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 px-1.5 text-xs"
+                          onClick={() => openEditDialog(link)}
+                          aria-label={`Edit ${link.displayName}`}
+                        >
+                          <Edit2 className="h-4 w-4 mr-1" />
+                          Edit
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 px-1.5 text-xs text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
+                          onClick={() => deleteLink(link.id)}
+                          aria-label={`Delete ${link.displayName}`}
+                        >
+                          <Trash2 className="h-4 w-4 mr-1" />
+                          Delete
+                        </Button>
+                      </div>
+                      <div className="absolute inset-0 flex items-end justify-start pb-0 pl-6 text-base text-muted-foreground opacity-100 group-hover:opacity-0 transition-opacity duration-300 pointer-events-none">
+                        <span>#{getLinkCRC64(link)}</span>
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="pt-0">
+                    <a
+                      href={link.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs sm:text-sm text-muted-foreground hover:text-foreground transition-colors flex items-center justify-start gap-2 group/link pl-6"
                     >
-                      <Star className={`h-4 w-4 mr-1 ${link.starred ? 'fill-current' : ''}`} />
-                      Star
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-8 px-1.5 text-xs"
-                      onClick={() => openEditDialog(link)}
-                      aria-label={`Edit ${link.displayName}`}
-                    >
-                      <Edit2 className="h-4 w-4 mr-1" />
-                      Edit
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-8 px-1.5 text-xs text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
-                      onClick={() => deleteLink(link.id)}
-                      aria-label={`Delete ${link.displayName}`}
-                    >
-                      <Trash2 className="h-4 w-4 mr-1" />
-                      Delete
-                    </Button>
-                  </div>
-                </CardHeader>
-                                <CardContent className="pt-0">
-                  <a
-                    href={link.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-xs sm:text-sm text-muted-foreground hover:text-foreground transition-colors flex items-center gap-2 group/link"
-                  >
-                    <span className="truncate">{link.url}</span>
-                    <ExternalLink className="h-3 w-3 flex-shrink-0 opacity-0 group-hover/link:opacity-100 transition-opacity" />
-                  </a>
-                </CardContent>
+                      <span className="truncate">{link.url}</span>
+                      <ExternalLink className="h-3 w-3 flex-shrink-0 opacity-0 group-hover/link:opacity-100 transition-opacity" />
+                    </a>
+                  </CardContent>
                 </Card>
               ))}
             </div>
