@@ -99,33 +99,42 @@ self.addEventListener('fetch', (event) => {
     // For non-navigation requests (assets like JS, CSS, images)
     event.respondWith(
       (async () => {
-        const cache = await caches.open(CACHE_NAME)
+        const cache = await caches.open(CACHE_NAME);
+        const requestURL = event.request.url;
         // 1. Try cache first
-        const cachedResponse = await cache.match(event.request)
+        const cachedResponse = await cache.match(event.request);
         if (cachedResponse) {
-          return cachedResponse
+          console.log(`SW: Asset serving from CACHE: ${requestURL}`);
+          return cachedResponse;
         }
-
+        console.log(`SW: Asset not in cache, trying NETWORK: ${requestURL}`);
         // 2. Not in cache, try network
         try {
-          const networkResponse = await fetch(event.request)
+          const networkResponse = await fetch(event.request);
+          console.log(`SW: Asset fetched from NETWORK: ${requestURL}, Status: ${networkResponse.status}, Type: ${networkResponse.type}`);
           // If successful, cache it (only if it's a valid, basic (same-origin) response)
           if (networkResponse && networkResponse.status === 200 && 
-              networkResponse.type === 'basic' && // 'basic' usually means same-origin
-              event.request.url.startsWith(self.location.origin)) { // Explicitly check same-origin
-            await cache.put(event.request, networkResponse.clone())
+              networkResponse.type === 'basic' && 
+              event.request.url.startsWith(self.location.origin)) {
+            console.log(`SW: Asset eligible for CACHING: ${requestURL}`);
+            try {
+              await cache.put(event.request, networkResponse.clone());
+              console.log(`SW: Asset successfully CACHED: ${requestURL}`);
+            } catch (cachePutError) {
+              console.error(`SW: FAILED to CACHE asset: ${requestURL}`, cachePutError);
+            }
+          } else {
+            console.warn(`SW: Asset NOT cached (failed conditions): ${requestURL}, Status: ${networkResponse.status}, Type: ${networkResponse.type}, IsSameOrigin: ${event.request.url.startsWith(self.location.origin)}`);
           }
-          return networkResponse
+          return networkResponse;
         } catch (error) {
-          console.error('SW: Asset fetch failed, not in cache and network error:', event.request.url, error)
-          // For assets, if not in cache and network fails, it's generally an error.
-          // You could return a placeholder image/style if you have one.
-          return new Response(`Asset not found: ${event.request.url}`, { 
+          console.error(`SW: Asset fetch FAILED (network error): ${requestURL}`, error);
+          return new Response(`Asset not found and network failed: ${requestURL}`, { 
             status: 404, 
-            headers: { 'Content-Type': 'text/plain' } // Adjust content type if needed
-          })
+            headers: { 'Content-Type': 'text/plain' }
+          });
         }
       })()
-    )
+    );
   }
 }) 
