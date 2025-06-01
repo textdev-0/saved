@@ -82,6 +82,7 @@ export default function LinkManager() {
   const [isImportDialogOpen, setIsImportDialogOpen] = useState(false)
   const fileDialogTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const importDialogTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const [showImportHelp, setShowImportHelp] = useState(false)
 
   // Handle hydration
   useEffect(() => {
@@ -967,7 +968,7 @@ ${links.map(link => {
 
         {/* Links Grid */}
           {links.length === 0 ? (
-            <div className="space-y-6 max-w-2xl mx-auto">
+            <div className="space-y-6 max-w-7xl mx-auto">
               {/* Main Empty State Card */}
               <Card className="text-center py-12 sm:py-16 bg-gradient-to-br from-background to-muted/20 border-dashed border-2">
                 <CardContent className="space-y-6">
@@ -997,11 +998,11 @@ ${links.map(link => {
                       Also... <ChevronDown className="h-4 w-4" />
                     </Button>
                     <div id="additional-details" style={{display: 'none'}} className="space-y-3">
-                                          <p className="text-muted-foreground max-w-lg mx-auto text-sm sm:text-base leading-relaxed">
+                                          <p className="text-muted-foreground max-w-2xl mx-auto text-sm sm:text-base leading-relaxed">
                         You can Export your links to Import them on another device, or even Import your browsers Bookmarks toolbar.
                         Importing also works from your browsers existing Bookmarks!
                       </p>
-                      <p className="text-muted-foreground max-w-lg mx-auto text-sm sm:text-base leading-relaxed">
+                      <p className="text-muted-foreground max-w-2xl mx-auto text-sm sm:text-base leading-relaxed">
                         Don't worry, the links never leave your device. Nothing is "Uploaded" to a web server, only to your device. The only web interaction is to get a websites icon.
                       </p>
                     </div>
@@ -1030,6 +1031,68 @@ ${links.map(link => {
                       <span className="hidden sm:inline">Add Sample Links</span>
                       <span className="inline sm:hidden">Samples</span>
                     </Button>
+                  </div>
+                  
+                  <div className="flex justify-center items-center gap-2 pt-2">
+                    <div className="relative">
+                      <input
+                        type="file"
+                        accept=".html"
+                        onChange={handleImportBookmarks}
+                        onClick={handleImportDialogOpen}
+                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                        id="starter-import-bookmarks"
+                      />
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="gap-2 text-muted-foreground hover:text-foreground"
+                        asChild
+                        disabled={isImporting}
+                      >
+                        <label htmlFor="starter-import-bookmarks" className="cursor-pointer flex items-center gap-2">
+                          {isImporting ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <FileUp className="h-4 w-4" />
+                          )}
+                          <span className="text-sm">Or import your bookmarks</span>
+                        </label>
+                      </Button>
+                    </div>
+                    
+                    <div className="relative">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-xs text-muted-foreground hover:text-foreground p-1 h-auto border border-muted-foreground/30"
+                        onClick={() => setShowImportHelp(!showImportHelp)}
+                      >
+                        How?
+                      </Button>
+                      
+                      {showImportHelp && (
+                        <>
+                          <div 
+                            className="fixed inset-0 z-40" 
+                            onClick={() => setShowImportHelp(false)}
+                          />
+                          <div className="absolute top-full mt-2 right-0 z-50 w-80 p-4 bg-background border rounded-lg shadow-lg">
+                            <h4 className="font-semibold mb-3 text-sm">Export bookmarks from your browser:</h4>
+                            <ol className="text-xs space-y-2 text-muted-foreground">
+                              <li><strong>1.</strong> Press <code className="bg-muted px-1 rounded">Ctrl+Shift+O</code> (or <code className="bg-muted px-1 rounded">Cmd+Shift+O</code> on Mac)</li>
+                              <li><strong>2.</strong> Look for three dots <strong>⋮</strong> or a menu button</li>
+                              <li><strong>3.</strong> Click <strong>"Export"</strong> or <strong>"Import and Backup"</strong> → <strong>"Export"</strong></li>
+                              <li><strong>4.</strong> Save the HTML file</li>
+                              <li><strong>5.</strong> Click import above and select that file</li>
+                            </ol>
+                            <p className="text-xs text-muted-foreground mt-3 pt-2 border-t">
+                              Works with Chrome, Firefox, Safari, and Edge
+                            </p>
+                          </div>
+                        </>
+                      )}
+                    </div>
                   </div>
                 </CardContent>
               </Card>
