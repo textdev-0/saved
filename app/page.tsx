@@ -724,9 +724,10 @@ ${links.map(link => {
   return (
     <>
       <div className={`min-h-screen bg-background transition-colors duration-700 ${currentFontClass}`}>
-        <div className="container mx-auto px-3 sm:px-4 py-4 sm:py-8 max-w-4xl">
+        <div className="container mx-auto px-3 sm:px-4 py-4 sm:py-8 max-w-7xl 2xl:max-w-none 2xl:max-w-[1600px]">
           {/* Header */}
-          <div className="flex flex-col space-y-4 sm:space-y-0 sm:flex-row sm:justify-between sm:items-center mb-6 sm:mb-8">
+          <div className="max-w-7xl mx-auto">
+            <div className="flex flex-col space-y-4 sm:space-y-0 sm:flex-row sm:justify-between sm:items-center mb-6 sm:mb-8">
             <div className="text-center sm:text-left">
               <h1 className="text-2xl sm:text-3xl font-bold text-foreground">Link Manager</h1>
               <p className="text-muted-foreground mt-1 text-sm sm:text-base">Organize and manage your favorite links</p>
@@ -893,7 +894,8 @@ ${links.map(link => {
                 </DialogContent>
               </Dialog>
                       </div>
-        </div>
+            </div>
+          </div>
 
         {/* Tab Switcher & Search - Merged */}
         {links.length > 0 && (
@@ -964,7 +966,7 @@ ${links.map(link => {
 
         {/* Links Grid */}
           {links.length === 0 ? (
-            <div className="space-y-6">
+            <div className="space-y-6 max-w-2xl mx-auto">
               {/* Main Empty State Card */}
               <Card className="text-center py-12 sm:py-16 bg-gradient-to-br from-background to-muted/20 border-dashed border-2">
                 <CardContent className="space-y-6">
@@ -977,7 +979,7 @@ ${links.map(link => {
                   
                   <div className="space-y-3">
                     <h3 className="text-xl sm:text-2xl font-bold text-foreground">Welcome to Link Manager!</h3>
-                    <p className="text-muted-foreground max-w-md mx-auto text-sm sm:text-base leading-relaxed">
+                    <p className="text-muted-foreground max-w-lg mx-auto text-sm sm:text-base leading-relaxed">
                       Start building your personal link collection. Organize your favorite websites, tools, and resources in one place.
                     </p>
                     <Button
@@ -994,8 +996,12 @@ ${links.map(link => {
                       Also... <ChevronDown className="h-4 w-4" />
                     </Button>
                     <div id="additional-details" style={{display: 'none'}} className="space-y-3">
-                      <p className="text-muted-foreground max-w-md mx-auto text-sm sm:text-base leading-relaxed">
-                        Don't worry, the links never leave your device. Nothing is "Uploaded" to a web server, only to your device. The only web interaction is to get a website icon.
+                                          <p className="text-muted-foreground max-w-lg mx-auto text-sm sm:text-base leading-relaxed">
+                        You can Export your links to Import them on another device, or even Import your browsers Bookmarks toolbar.
+                        Importing also works from your browsers existing Bookmarks!
+                      </p>
+                      <p className="text-muted-foreground max-w-lg mx-auto text-sm sm:text-base leading-relaxed">
+                        Don't worry, the links never leave your device. Nothing is "Uploaded" to a web server, only to your device. The only web interaction is to get a websites icon.
                       </p>
                     </div>
                   </div>
@@ -1058,11 +1064,11 @@ ${links.map(link => {
               </div>
             </div>
           ) : (
-            <div className="grid gap-3 sm:gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="flex flex-wrap gap-4 sm:gap-6 justify-center">
               {sortedLinks.map((link) => (
                 <Card 
                   key={link.id} 
-                  className={`group hover:shadow-md transition-all cursor-move ${
+                  className={`group hover:shadow-md transition-all cursor-move min-h-[120px] w-full sm:w-[calc(50%-12px)] lg:w-[calc(33.333%-16px)] xl:w-[calc(25%-18px)] 2xl:w-[calc(20%-19.2px)] ${
                     draggedItem === link.id ? 'opacity-50 scale-95' : ''
                   } ${
                     dragOverItem === link.id ? 'border-primary border-2' : ''
@@ -1077,7 +1083,7 @@ ${links.map(link => {
                   onDragEnd={handleDragEnd}
                 >
                   <CardHeader className="pb-0 relative">
-                    <div className="absolute top-6 left-6">
+                    <div className="absolute top-8 left-6">
                       <GripVertical className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
                     </div>
                     <CardTitle className="text-sm sm:text-base pl-6">
