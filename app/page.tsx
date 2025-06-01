@@ -3,7 +3,7 @@
 import type React from "react"
 
 import { useState, useEffect, useRef } from "react"
-import { Plus, ExternalLink, Edit2, Trash2, Moon, Sun, Type, Image, X, Star, GripVertical, Upload, Zap, BookOpen, Github, Twitter, Youtube, Globe, Lightbulb, ChevronDown, Search } from "lucide-react"
+import { Plus, ExternalLink, Edit2, Trash2, Moon, Sun, Type, Image, X, Star, GripVertical, Upload, Zap, BookOpen, Github, Twitter, Youtube, Globe, Lightbulb, ChevronDown, Search, Download, FileUp, Loader2, FileX2, Check, XCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -69,10 +69,19 @@ export default function LinkManager() {
   const [draggedItem, setDraggedItem] = useState<string | null>(null)
   const [dragOverItem, setDragOverItem] = useState<string | null>(null)
   const [loadingIcons, setLoadingIcons] = useState<Set<string>>(new Set())
-  const [activeTab, setActiveTab] = useState<"all" | "favourites" | "unstarred">("all")
+  const [activeTab, setActiveTab] = useState<"all" | "starred" | "unstarred">("all")
   const [searchQuery, setSearchQuery] = useState("")
   const tabSwitcherRef = useRef<HTMLDivElement>(null)
   const [tabSwitcherWidth, setTabSwitcherWidth] = useState<number>(0)
+  const [isExporting, setIsExporting] = useState(false)
+  const [isImporting, setIsImporting] = useState(false)
+  const [isUploadingIcon, setIsUploadingIcon] = useState(false)
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [deleteType, setDeleteType] = useState<"all" | "starred" | "unstarred">("all")
+  const [isFileDialogOpen, setIsFileDialogOpen] = useState(false)
+  const [isImportDialogOpen, setIsImportDialogOpen] = useState(false)
+  const fileDialogTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const importDialogTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
   // Handle hydration
   useEffect(() => {
@@ -249,17 +258,31 @@ export default function LinkManager() {
 
   const handleCustomIcon = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
-    if (!file) return
+    
+    // Clear the timeout since dialog is closed
+    if (fileDialogTimeoutRef.current) {
+      clearTimeout(fileDialogTimeoutRef.current)
+      fileDialogTimeoutRef.current = null
+    }
+    
+    setIsFileDialogOpen(false) // Dialog closed (file selected or cancelled)
+    
+    if (!file) {
+      setIsUploadingIcon(false)
+      return
+    }
 
     // Check if it's an image file
     if (!file.type.startsWith('image/')) {
       alert('Please select an image file (PNG, JPG, SVG, etc.)')
+      setIsUploadingIcon(false)
       return
     }
 
     // Check file size (limit to 2MB)
     if (file.size > 2 * 1024 * 1024) {
       alert('Please select an image smaller than 2MB')
+      setIsUploadingIcon(false)
       return
     }
 
@@ -275,11 +298,30 @@ export default function LinkManager() {
         setNewLinkIcon(dataUrl)
         setShowIcon(true)
       }
+      setIsUploadingIcon(false)
     }
     reader.onerror = () => {
       alert('Error reading the file. Please try again.')
+      setIsUploadingIcon(false)
     }
     reader.readAsDataURL(file)
+  }
+
+  const handleFileDialogOpen = () => {
+    setIsFileDialogOpen(true)
+    setIsUploadingIcon(true)
+    
+    // Clear any existing timeout
+    if (fileDialogTimeoutRef.current) {
+      clearTimeout(fileDialogTimeoutRef.current)
+    }
+    
+    // Set a timeout to detect if dialog was cancelled - always clear loading state
+    fileDialogTimeoutRef.current = setTimeout(() => {
+      setIsFileDialogOpen(false)
+      setIsUploadingIcon(false)
+      fileDialogTimeoutRef.current = null
+    }, 3000) // 3 second timeout
   }
 
   const addLink = () => {
@@ -436,7 +478,7 @@ export default function LinkManager() {
   const filteredLinks = links.filter((link) => {
     // First apply tab filter
     let passesTabFilter = true
-    if (activeTab === "favourites") passesTabFilter = !!link.starred
+    if (activeTab === "starred") passesTabFilter = !!link.starred
     if (activeTab === "unstarred") passesTabFilter = !link.starred
     
     // Then apply search filter if there's a query
@@ -513,6 +555,167 @@ export default function LinkManager() {
     const linkJson = JSON.stringify(contentObject);
     return crc64(linkJson).toUpperCase();
   };
+
+  // Delete all functionality
+  const handleDeleteAll = () => {
+    let linksToDelete: Link[] = []
+    
+    switch (deleteType) {
+      case "all":
+        linksToDelete = links
+        break
+      case "starred":
+        linksToDelete = links.filter(link => link.starred)
+        break
+      case "unstarred":
+        linksToDelete = links.filter(link => !link.starred)
+        break
+    }
+    
+    if (linksToDelete.length === 0) {
+      alert(`No ${deleteType === "all" ? "links" : deleteType} to delete`)
+      setDeleteDialogOpen(false)
+      return
+    }
+    
+    // Remove the links
+    const idsToDelete = new Set(linksToDelete.map(link => link.id))
+    setLinks(prev => prev.filter(link => !idsToDelete.has(link.id)))
+    setDeleteDialogOpen(false)
+    alert(`Deleted ${linksToDelete.length} ${deleteType === "all" ? "links" : deleteType}`)
+  }
+
+  // Export bookmarks to HTML file (Netscape bookmark format)
+  const exportBookmarks = async () => {
+    setIsExporting(true)
+    try {
+      // Small delay to show loading state
+      await new Promise(resolve => setTimeout(resolve, 300))
+      
+      const bookmarkHTML = `<!DOCTYPE NETSCAPE-Bookmark-file-1>
+<!-- This is an automatically generated file.
+     It will be read and overwritten.
+     DO NOT EDIT! -->
+<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=UTF-8">
+<TITLE>Bookmarks</TITLE>
+<H1>Bookmarks</H1>
+<DL><p>
+    <DT><H3 ADD_DATE="${Math.floor(Date.now() / 1000)}" LAST_MODIFIED="${Math.floor(Date.now() / 1000)}">Link Manager Export</H3>
+    <DL><p>
+${links.map(link => {
+  const addDate = Math.floor(Date.now() / 1000)
+  const starred = link.starred ? ' STARRED="true"' : ''
+  const icon = link.iconUrl ? ` ICON="${link.iconUrl}"` : ''
+  return `        <DT><A HREF="${link.url}" ADD_DATE="${addDate}"${icon}${starred}>${link.displayName}</A>`
+}).join('\n')}
+    </DL><p>
+</DL><p>`
+
+      // Create and download the file
+      const blob = new Blob([bookmarkHTML], { type: 'text/html' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `link-manager-bookmarks-${new Date().toISOString().split('T')[0]}.html`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    } finally {
+      setIsExporting(false)
+    }
+  }
+
+  // Import bookmarks from HTML file
+  const handleImportBookmarks = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    
+    // Clear the timeout since dialog is closed
+    if (importDialogTimeoutRef.current) {
+      clearTimeout(importDialogTimeoutRef.current)
+      importDialogTimeoutRef.current = null
+    }
+    
+    setIsImportDialogOpen(false) // Dialog closed (file selected or cancelled)
+    
+    if (!file) {
+      setIsImporting(false)
+      return
+    }
+
+    try {
+      const text = await file.text()
+      const parser = new DOMParser()
+      const doc = parser.parseFromString(text, 'text/html')
+      
+      // Find all bookmark links
+      const bookmarkElements = doc.querySelectorAll('a[href]')
+      const importedLinks: Link[] = []
+      
+      bookmarkElements.forEach((element) => {
+        const url = element.getAttribute('href')
+        const displayName = element.textContent || ''
+        const starred = element.getAttribute('starred') === 'true' || element.getAttribute('STARRED') === 'true'
+        const iconUrl = element.getAttribute('icon') || element.getAttribute('ICON') || undefined
+        
+        if (url && displayName) {
+          // Check if link already exists
+          const existingLink = links.find(link => link.url === url)
+          if (!existingLink) {
+            importedLinks.push({
+              id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
+              url,
+              displayName,
+              starred,
+              iconUrl,
+              order: links.length + importedLinks.length
+            })
+          }
+        }
+      })
+      
+      if (importedLinks.length > 0) {
+        setLinks(prev => [...prev, ...importedLinks])
+        // Set loading icons for external URLs
+        const externalIcons = importedLinks.filter(link => link.iconUrl && !link.iconUrl.startsWith('data:'))
+        if (externalIcons.length > 0) {
+          setLoadingIcons(prev => {
+            const newSet = new Set(prev)
+            externalIcons.forEach(link => newSet.add(link.id))
+            return newSet
+          })
+        }
+        alert(`Successfully imported ${importedLinks.length} new links!`)
+      } else {
+        alert('No new links to import (all links already exist or no valid links found)')
+      }
+    } catch (error) {
+      console.error('Error importing bookmarks:', error)
+      alert('Error importing bookmarks. Please ensure the file is a valid HTML bookmarks file.')
+    } finally {
+      setIsImporting(false)
+    }
+    
+    // Reset the input
+    event.target.value = ''
+  }
+
+  const handleImportDialogOpen = () => {
+    setIsImportDialogOpen(true)
+    setIsImporting(true)
+    
+    // Clear any existing timeout
+    if (importDialogTimeoutRef.current) {
+      clearTimeout(importDialogTimeoutRef.current)
+    }
+    
+    // Set a timeout to detect if dialog was cancelled - always clear loading state
+    importDialogTimeoutRef.current = setTimeout(() => {
+      setIsImportDialogOpen(false)
+      setIsImporting(false)
+      importDialogTimeoutRef.current = null
+    }, 3000) // 3 second timeout
+  }
 
   if (!mounted) {
     return null
@@ -637,18 +840,23 @@ export default function LinkManager() {
                               variant="outline"
                               size="sm"
                               onClick={() => newLinkUrl && generateFavicon(newLinkUrl)}
-                              disabled={!newLinkUrl || isGeneratingIcon}
-                              className="gap-2 text-xs sm:text-sm"
-                            >
-                              <Image className="h-4 w-4" />
-                              <span className="hidden sm:inline">{isGeneratingIcon ? "Generating..." : "Generate Icon"}</span>
-                              <span className="inline sm:hidden">{isGeneratingIcon ? "..." : "Icon"}</span>
+                                                        disabled={!newLinkUrl || isGeneratingIcon}
+                          className="gap-2 text-xs sm:text-sm"
+                        >
+                          {isGeneratingIcon ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Image className="h-4 w-4" />
+                          )}
+                          <span className="hidden sm:inline">{isGeneratingIcon ? "Generating..." : "Generate Icon"}</span>
+                          <span className="inline sm:hidden">{isGeneratingIcon ? "..." : "Icon"}</span>
                             </Button>
                             <div className="relative">
                               <input
                                 type="file"
                                 accept="image/*"
                                 onChange={handleCustomIcon}
+                                onClick={handleFileDialogOpen}
                                 className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                                 id="add-custom-icon"
                               />
@@ -656,11 +864,15 @@ export default function LinkManager() {
                                 variant="outline"
                                 size="sm"
                                 className="gap-2 text-xs sm:text-sm"
-                                asChild
-                              >
-                                <label htmlFor="add-custom-icon" className="cursor-pointer flex items-center gap-2">
-                                  <Upload className="h-4 w-4" />
-                                  <span className="hidden sm:inline">Upload</span>
+                                                            asChild
+                          >
+                            <label htmlFor="add-custom-icon" className="cursor-pointer flex items-center gap-2">
+                              {isUploadingIcon ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <Upload className="h-4 w-4" />
+                              )}
+                              <span className="hidden sm:inline">Upload</span>
                                 </label>
                               </Button>
                             </div>
@@ -703,14 +915,14 @@ export default function LinkManager() {
                   All ({links.length})
                 </button>
                 <button
-                  onClick={() => setActiveTab("favourites")}
+                  onClick={() => setActiveTab("starred")}
                   className={`px-4 py-2 text-sm font-medium rounded-md transition-all ${
-                    activeTab === "favourites"
+                    activeTab === "starred"
                       ? "bg-background text-foreground shadow-sm"
                       : "text-muted-foreground hover:text-foreground"
                   }`}
                 >
-                  Favourites ({links.filter(link => link.starred).length})
+                  Starred ({links.filter(link => link.starred).length})
                 </button>
                 <button
                   onClick={() => setActiveTab("unstarred")}
@@ -829,7 +1041,7 @@ export default function LinkManager() {
                     {searchQuery ? (
                       <>No links match "<span className="font-medium">{searchQuery}</span>"</>
                     ) : (
-                      <>No links in the {activeTab === "favourites" ? "favourites" : "unstarred"} category</>
+                      <>No links in the {activeTab === "starred" ? "starred" : "unstarred"} category</>
                     )}
                   </p>
                   {searchQuery && (
@@ -1042,7 +1254,11 @@ export default function LinkManager() {
                           disabled={!newLinkUrl || isGeneratingIcon}
                           className="gap-2 text-xs sm:text-sm"
                         >
-                          <Image className="h-4 w-4" />
+                          {isGeneratingIcon ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Image className="h-4 w-4" />
+                          )}
                           <span className="hidden sm:inline">{isGeneratingIcon ? "Generating..." : "Generate Icon"}</span>
                           <span className="inline sm:hidden">{isGeneratingIcon ? "..." : "Icon"}</span>
                         </Button>
@@ -1051,6 +1267,7 @@ export default function LinkManager() {
                             type="file"
                             accept="image/*"
                             onChange={handleCustomIcon}
+                            onClick={handleFileDialogOpen}
                             className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                             id="edit-custom-icon"
                           />
@@ -1061,7 +1278,11 @@ export default function LinkManager() {
                             asChild
                           >
                             <label htmlFor="edit-custom-icon" className="cursor-pointer flex items-center gap-2">
-                              <Upload className="h-4 w-4" />
+                              {isUploadingIcon ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <Upload className="h-4 w-4" />
+                              )}
                               <span className="hidden sm:inline">Upload</span>
                             </label>
                           </Button>
@@ -1083,8 +1304,115 @@ export default function LinkManager() {
             </DialogContent>
           </Dialog>
 
-          {/* Stats - Always Visible */}
-          <div className="mt-6 sm:mt-8 text-center text-xs sm:text-sm text-muted-foreground space-y-1">
+          {/* Delete Confirmation Dialog */}
+          <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+            <DialogContent className="w-[95vw] max-w-md mx-auto">
+              <DialogHeader>
+                <DialogTitle>Delete Links</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4">
+                <div>
+                  <Label htmlFor="delete-type">Select what to delete</Label>
+                  <Select value={deleteType} onValueChange={(value) => setDeleteType(value as "all" | "starred" | "unstarred")}>
+                    <SelectTrigger id="delete-type" className="mt-1">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Links ({links.length})</SelectItem>
+                      <SelectItem value="starred">Starred ({links.filter(l => l.starred).length})</SelectItem>
+                      <SelectItem value="unstarred">Unstarred ({links.filter(l => !l.starred).length})</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                
+                <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-md p-4">
+                  <p className="text-sm text-red-600 dark:text-red-400">
+                    <strong>Warning:</strong> This action cannot be undone. 
+                    {deleteType === "all" && ` All ${links.length} links will be permanently deleted.`}
+                    {deleteType === "starred" && ` All ${links.filter(l => l.starred).length} favourite links will be permanently deleted.`}
+                    {deleteType === "unstarred" && ` All ${links.filter(l => !l.starred).length} unstarred links will be permanently deleted.`}
+                  </p>
+                </div>
+                
+                <div className="flex justify-end gap-2 pt-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => setDeleteDialogOpen(false)}
+                    className="gap-2"
+                  >
+                    <XCircle className="h-4 w-4" />
+                    No, Cancel
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    onClick={handleDeleteAll}
+                    className="gap-2 bg-red-600 text-white hover:bg-red-700 dark:bg-red-700 dark:hover:bg-red-800"
+                  >
+                    <Check className="h-4 w-4" />
+                    Yes, Delete
+                  </Button>
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
+
+          {/* Stats and Actions */}
+          <div className="mt-6 sm:mt-8 space-y-4">
+            {/* Export/Import Buttons */}
+            <div className="flex justify-center gap-2">
+                            <Button
+                variant="outline"
+                size="sm"
+                onClick={() => exportBookmarks()}
+                className="gap-2"
+                disabled={isExporting}
+              >
+                {isExporting ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Download className="h-4 w-4" />
+                )}
+                Export
+              </Button>
+              <div className="relative">
+                <input
+                  type="file"
+                  accept=".html"
+                  onChange={handleImportBookmarks}
+                  onClick={handleImportDialogOpen}
+                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                  id="import-bookmarks"
+                />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-2"
+                  asChild
+                  disabled={isImporting && !isImportDialogOpen}
+                >
+                  <label htmlFor="import-bookmarks" className="cursor-pointer flex items-center gap-2">
+                    {isImporting ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <FileUp className="h-4 w-4" />
+                    )}
+                    Import
+                  </label>
+                </Button>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-2 bg-red-600 border-red-600 text-white hover:bg-red-700 hover:border-red-700"
+                onClick={() => setDeleteDialogOpen(true)}
+              >
+                <FileX2 className="h-4 w-4" />
+                Delete All
+              </Button>
+            </div>
+            
+            {/* Stats */}
+            <div className="text-center text-xs sm:text-sm text-muted-foreground space-y-1">
             <div>
               {sortedLinks.length > 0 ? (
                 <>
@@ -1124,6 +1452,7 @@ export default function LinkManager() {
               )
             })()}
           </div>
+            </div>
         </div>
       </div>
     </>
