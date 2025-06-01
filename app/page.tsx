@@ -44,20 +44,24 @@ export default function LinkManager() {
   const [dragOverItem, setDragOverItem] = useState<string | null>(null)
   const [loadingIcons, setLoadingIcons] = useState<Set<string>>(new Set())
 
-  // Register service worker
+  // AGGRESSIVE SW REGISTRATION LOGGING START
   useEffect(() => {
+    console.log('[SW RLog] Attempting Service Worker registration...'); // New Log
     if ('serviceWorker' in navigator) {
-      window.addEventListener('load', () => {
-        navigator.serviceWorker.register('/sw.js')
-          .then((registration) => {
-            console.log('SW registered: ', registration)
-          })
-          .catch((registrationError) => {
-            console.log('SW registration failed: ', registrationError)
-          })
-      })
+      console.log('[SW RLog] navigator.serviceWorker is AVAILABLE.'); // New Log
+      // Removing window.addEventListener('load') for immediate registration attempt during testing
+      navigator.serviceWorker.register('/sw.js', { scope: '/' }) // Explicitly set scope
+        .then((registration) => {
+          console.log('[SW RLog] SUCCESS! Service Worker registered with scope:', registration.scope);
+        })
+        .catch((error) => {
+          console.error('[SW RLog] FATAL: Service Worker registration FAILED:', error);
+        });
+    } else {
+      console.warn('[SW RLog] WARNING: navigator.serviceWorker is NOT AVAILABLE in this browser.');
     }
-  }, [])
+  }, []);
+  // AGGRESSIVE SW REGISTRATION LOGGING END
 
   // Handle hydration
   useEffect(() => {
