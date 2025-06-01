@@ -458,6 +458,7 @@ export default function LinkManager() {
     setNewLinkName("")
     clearIcon()
   }
+  
 
   const closeAddDialog = () => {
     setNewLinkUrl("")
