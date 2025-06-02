@@ -13,6 +13,16 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useTheme } from "next-themes"
 import { Analytics } from "@vercel/analytics/react"
 
+// Add this near the top of the file, after the imports
+declare global {
+  interface Window {
+    kofiwidget2: {
+      init: (text: string, color: string, id: string) => void
+      draw: () => void
+    }
+  }
+}
+
 // Manual CRC64 implementation using ISO polynomial (0x42F0E1EBA9EA3693)
 // Based on the algorithm from https://www.sunshine2k.de/articles/coding/crc/understanding_crc.html
 function crc64(data: string): string {
@@ -1041,9 +1051,10 @@ ${links.map(link => {
                     </Button>
                     <Button variant="outline" size="lg" className="gap-2" onClick={() => {
                       const quickLinks = [
-                        { url: "https://github.com", name: "GitHub", icon: "https://www.google.com/s2/favicons?domain=github.com&sz=64", starred: true },
+                        { url: "https://github.com", name: "GitHub", icon: "https://www.google.com/s2/favicons?domain=github.com&sz=64", starred: false },
                         { url: "https://google.com", name: "Google", icon: "https://www.google.com/s2/favicons?domain=google.com&sz=64", starred: false },
-                        { url: "https://youtube.com", name: "YouTube", icon: "https://www.google.com/s2/favicons?domain=youtube.com&sz=64", starred: false }
+                        { url: "https://youtube.com", name: "YouTube", icon: "https://www.google.com/s2/favicons?domain=youtube.com&sz=64", starred: false },
+                        { url: "https://ko-fi.com/T6T41FVX1P", name: "Support me :)", icon: "https://www.google.com/s2/favicons?domain=ko-fi.com&sz=64", starred: true }
                       ]
                       quickLinks.forEach((link, index) => {
                         setTimeout(() => addSampleLink(link.url, link.name, link.icon, link.starred), index * 100)
@@ -1312,7 +1323,7 @@ ${links.map(link => {
                 <Label htmlFor="edit-name">Display Name</Label>
                 <Input
                   id="edit-name"
-                  placeholder="My Awesome Link"
+                  placeholder="Custom Title"
                   value={newLinkName}
                   onChange={(e) => setNewLinkName(e.target.value)}
                   onKeyPress={(e) => handleKeyPress(e, updateLink)}
@@ -1470,9 +1481,23 @@ ${links.map(link => {
 
           {/* Stats and Actions */}
           <div className="mt-6 sm:mt-8 space-y-4">
-            {/* Export/Import Buttons */}
+            {/* Ko-fi Support & Export/Import Buttons */}
             <div className="flex justify-center gap-2">
-                            <Button
+              <a 
+                href="https://ko-fi.com/T6T41FVX1P" 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="inline-flex items-center justify-center h-10 px-4 py-2 rounded-md text-sm font-medium transition-colors bg-[#72a4f2] hover:bg-[#5a83c2] text-white"
+              >
+                <img 
+                  src="https://storage.ko-fi.com/cdn/cup-border.png" 
+                  alt="Ko-fi donations" 
+                  className="h-5 w-5 mr-2"
+                  style={{ objectFit: 'contain' }}
+                />
+                Support me
+              </a>
+              <Button
                 variant="outline"
                 size="sm"
                 onClick={() => exportBookmarks()}
