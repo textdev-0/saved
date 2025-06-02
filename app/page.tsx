@@ -3,7 +3,7 @@
 import type React from "react"
 
 import { useState, useEffect, useRef } from "react"
-import { Plus, ExternalLink, Edit2, Trash2, Moon, Sun, Type, Image, X, Star, GripVertical, Upload, Zap, BookOpen, Github, Twitter, Youtube, Globe, Lightbulb, ChevronDown, Search, Download, FileUp, Loader2, FileX2, Check, XCircle } from "lucide-react"
+import { Plus, ExternalLink, Edit2, Trash2, Moon, Sun, Type, Image, X, Star, GripVertical, Upload, Zap, BookOpen, Github, Twitter, Youtube, Globe, Lightbulb, ChevronDown, Search, Download, FileUp, Loader2, FileX2, Check, XCircle, Monitor, Smartphone } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -83,10 +83,31 @@ export default function LinkManager() {
   const fileDialogTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const importDialogTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const [showImportHelp, setShowImportHelp] = useState(false)
+  const [isMobile, setIsMobile] = useState(false)
 
-  // Handle hydration
+  // Handle hydration and device detection
   useEffect(() => {
     setMounted(true)
+    
+    // Detect if device is mobile
+    const checkIsMobile = () => {
+      const userAgent = navigator.userAgent || navigator.vendor || (window as any).opera
+      const isMobileDevice = /android|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(userAgent.toLowerCase())
+      const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0
+      const isSmallScreen = window.innerWidth <= 768
+      
+      setIsMobile(isMobileDevice || (isTouchDevice && isSmallScreen))
+    }
+    
+    checkIsMobile()
+    
+    // Re-check on resize
+    const handleResize = () => {
+      checkIsMobile()
+    }
+    
+    window.addEventListener('resize', handleResize)
+    return () => window.removeEventListener('resize', handleResize)
   }, [])
 
   // Load data from localStorage on mount
@@ -727,78 +748,78 @@ ${links.map(link => {
     <>
       <div className={`min-h-screen bg-background transition-colors duration-700 ${currentFontClass}`}>
         <div className="container mx-auto px-3 sm:px-4 py-4 sm:py-8 max-w-7xl 2xl:max-w-none 2xl:max-w-[1600px]">
-          {/* Header */}
+        {/* Header */}
           <div className="max-w-7xl mx-auto">
             <div className="flex flex-col space-y-4 sm:space-y-0 sm:flex-row sm:justify-between sm:items-center mb-6 sm:mb-8">
             <div className="text-center sm:text-left">
               <h1 className="text-2xl sm:text-3xl font-bold text-foreground">Link Manager</h1>
               <p className="text-muted-foreground mt-1 text-sm sm:text-base">Organize and manage your favorite links</p>
-            </div>
+          </div>
 
             <div className="flex items-center justify-center sm:justify-end gap-2 flex-wrap">
-              {/* Font Selector */}
+            {/* Font Selector */}
               <div className="relative">
-                <Select value={selectedFont} onValueChange={setSelectedFont}>
+            <Select value={selectedFont} onValueChange={setSelectedFont}>
                   <SelectTrigger className="w-[120px] sm:w-[140px]" aria-label="Select font">
-                    <Type className="h-4 w-4 mr-2" />
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {FONT_OPTIONS.map((font) => (
-                      <SelectItem key={font.value} value={font.value} className={font.className}>
-                        {font.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Type className="h-4 w-4 mr-2" />
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {FONT_OPTIONS.map((font) => (
+                  <SelectItem key={font.value} value={font.value} className={font.className}>
+                    {font.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
               </div>
 
-              {/* Theme Toggle */}
-              <Button
-                variant="outline"
-                size="icon"
-                onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-                aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
-              >
-                {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-              </Button>
+            {/* Theme Toggle */}
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+              aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
+            >
+              {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+            </Button>
 
-              {/* Add Link Button */}
-              <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
-                <DialogTrigger asChild>
+            {/* Add Link Button */}
+            <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
+              <DialogTrigger asChild>
                   <Button className="gap-2 whitespace-nowrap">
-                    <Plus className="h-4 w-4" />
+                  <Plus className="h-4 w-4" />
                     <span className="hidden xs:inline">Add Link</span>
                     <span className="inline xs:hidden">Add</span>
-                  </Button>
-                </DialogTrigger>
+                </Button>
+              </DialogTrigger>
                 <DialogContent className="w-[95vw] max-w-md mx-auto">
-                  <DialogHeader>
-                    <DialogTitle>Add New Link</DialogTitle>
-                  </DialogHeader>
-                  <div className="space-y-4">
-                    <div>
-                      <Label htmlFor="add-url">URL</Label>
-                      <Input
-                        id="add-url"
-                        placeholder="https://example.com"
-                        value={newLinkUrl}
-                        onChange={(e) => setNewLinkUrl(e.target.value)}
-                        onKeyPress={(e) => handleKeyPress(e, addLink)}
-                        className="mt-1"
-                      />
-                    </div>
-                    <div>
-                      <Label htmlFor="add-name">Display Name</Label>
-                      <Input
-                        id="add-name"
-                        placeholder="My Awesome Link"
-                        value={newLinkName}
-                        onChange={(e) => setNewLinkName(e.target.value)}
-                        onKeyPress={(e) => handleKeyPress(e, addLink)}
-                        className="mt-1"
-                      />
-                    </div>
+                <DialogHeader>
+                  <DialogTitle>Add New Link</DialogTitle>
+                </DialogHeader>
+                <div className="space-y-4">
+                  <div>
+                    <Label htmlFor="add-url">URL</Label>
+                    <Input
+                      id="add-url"
+                      placeholder="https://example.com"
+                      value={newLinkUrl}
+                      onChange={(e) => setNewLinkUrl(e.target.value)}
+                      onKeyPress={(e) => handleKeyPress(e, addLink)}
+                      className="mt-1"
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="add-name">Display Name</Label>
+                    <Input
+                      id="add-name"
+                      placeholder="My Awesome Link"
+                      value={newLinkName}
+                      onChange={(e) => setNewLinkName(e.target.value)}
+                      onKeyPress={(e) => handleKeyPress(e, addLink)}
+                      className="mt-1"
+                    />
+                  </div>
                     
                     {/* Icon Section */}
                     <div className="space-y-2">
@@ -886,18 +907,18 @@ ${links.map(link => {
 
                     <div className="flex justify-end gap-2 pt-2">
                       <Button variant="outline" onClick={closeAddDialog}>
-                        Cancel
-                      </Button>
-                      <Button onClick={addLink} disabled={!newLinkUrl.trim() || !newLinkName.trim()}>
-                        Add Link
-                      </Button>
-                    </div>
+                      Cancel
+                    </Button>
+                    <Button onClick={addLink} disabled={!newLinkUrl.trim() || !newLinkName.trim()}>
+                      Add Link
+                    </Button>
                   </div>
-                </DialogContent>
-              </Dialog>
+                </div>
+              </DialogContent>
+            </Dialog>
                       </div>
-            </div>
           </div>
+        </div>
 
         {/* Tab Switcher & Search - Merged */}
         {links.length > 0 && (
@@ -967,7 +988,7 @@ ${links.map(link => {
         )}
 
         {/* Links Grid */}
-          {links.length === 0 ? (
+        {links.length === 0 ? (
             <div className="space-y-6 max-w-7xl mx-auto">
               {/* Main Empty State Card */}
               <Card className="text-center py-12 sm:py-16 bg-gradient-to-br from-background to-muted/20 border-dashed border-2">
@@ -1078,24 +1099,44 @@ ${links.map(link => {
                             onClick={() => setShowImportHelp(false)}
                           />
                           <div className="absolute top-full mt-2 right-0 z-50 w-80 p-4 bg-background border rounded-lg shadow-lg">
-                            <h4 className="font-semibold mb-3 text-sm">Export bookmarks from your browser:</h4>
-                            <ol className="text-xs space-y-2 text-muted-foreground">
-                              <li><strong>1.</strong> Press <code className="bg-muted px-1 rounded">Ctrl+Shift+O</code> (or <code className="bg-muted px-1 rounded">Cmd+Shift+O</code> on Mac)</li>
-                              <li><strong>2.</strong> Look for three dots <strong>⋮</strong> or a menu button</li>
-                              <li><strong>3.</strong> Click <strong>"Export"</strong> or <strong>"Import and Backup"</strong> → <strong>"Export"</strong></li>
-                              <li><strong>4.</strong> Save the HTML file</li>
-                              <li><strong>5.</strong> Click import above and select that file</li>
-                            </ol>
-                            <p className="text-xs text-muted-foreground mt-3 pt-2 border-t">
-                              Works with Chrome, Firefox, Safari, and Edge
-                            </p>
+                            {isMobile ? (
+                              <>
+                                <h4 className="font-semibold mb-3 text-sm">Mobile Browser Limitations:</h4>
+                                <div className="text-xs space-y-2 text-muted-foreground">
+                                  <p><strong>⚠️ Browser bookmark export is not available on mobile devices.</strong></p>
+                                  <p>However, the app's export/import feature still works perfectly:</p>
+                                  <ul className="ml-4 space-y-1 list-disc">
+                                    <li>Export your links using the "Export" button</li>
+                                    <li>Import previously exported link files</li>
+                                    <li>Share collections between devices</li>
+                                  </ul>
+                                </div>
+                                <p className="text-xs text-muted-foreground mt-3 pt-2 border-t">
+                                  Use desktop browser for bookmark export/import
+                                </p>
+                              </>
+                            ) : (
+                              <>
+                                <h4 className="font-semibold mb-3 text-sm">Export bookmarks from your browser:</h4>
+                                <ol className="text-xs space-y-2 text-muted-foreground">
+                                  <li><strong>1.</strong> Press <code className="bg-muted px-1 rounded">Ctrl+Shift+O</code> (or <code className="bg-muted px-1 rounded">Cmd+Shift+O</code> on Mac)</li>
+                                  <li><strong>2.</strong> Look for three dots <strong>⋮</strong> or a menu button</li>
+                                  <li><strong>3.</strong> Click <strong>"Export"</strong> or <strong>"Import and Backup"</strong> → <strong>"Export"</strong></li>
+                                  <li><strong>4.</strong> Save the HTML file</li>
+                                  <li><strong>5.</strong> Click import above and select that file</li>
+                                </ol>
+                                <p className="text-xs text-muted-foreground mt-3 pt-2 border-t">
+                                  Works with Chrome, Firefox, Safari, and Edge
+                                </p>
+                              </>
+                            )}
                           </div>
                         </>
                       )}
                     </div>
-                  </div>
-                </CardContent>
-              </Card>
+              </div>
+            </CardContent>
+          </Card>
             </div>
           ) : sortedLinks.length === 0 ? (
             <div className="text-center py-12">
@@ -1194,8 +1235,8 @@ ${links.map(link => {
                     </CardTitle>
                     <div className="relative mt-1 h-8">
                       <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-                        <Button
-                          variant="ghost"
+                      <Button
+                        variant="ghost"
                           size="sm"
                           className={`h-8 px-1.5 text-xs ${
                             link.starred ? 'text-yellow-500 hover:text-yellow-600' : 'hover:text-yellow-500'
@@ -1210,73 +1251,73 @@ ${links.map(link => {
                           variant="ghost"
                           size="sm"
                           className="h-8 px-1.5 text-xs"
-                          onClick={() => openEditDialog(link)}
-                          aria-label={`Edit ${link.displayName}`}
-                        >
+                        onClick={() => openEditDialog(link)}
+                        aria-label={`Edit ${link.displayName}`}
+                      >
                           <Edit2 className="h-4 w-4 mr-1" />
                           Edit
-                        </Button>
-                        <Button
-                          variant="ghost"
+                      </Button>
+                      <Button
+                        variant="ghost"
                           size="sm"
                           className="h-8 px-1.5 text-xs text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
-                          onClick={() => deleteLink(link.id)}
-                          aria-label={`Delete ${link.displayName}`}
-                        >
+                        onClick={() => deleteLink(link.id)}
+                        aria-label={`Delete ${link.displayName}`}
+                      >
                           <Trash2 className="h-4 w-4 mr-1" />
                           Delete
-                        </Button>
-                      </div>
+                      </Button>
+                    </div>
                       <div className="absolute inset-0 flex items-end justify-start pb-0 pl-6 text-base text-muted-foreground opacity-100 group-hover:opacity-0 transition-opacity duration-300 pointer-events-none">
                         <span>#{getLinkCRC64(link)}</span>
                       </div>
                     </div>
-                  </CardHeader>
-                  <CardContent className="pt-0">
-                    <a
-                      href={link.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
+                </CardHeader>
+                <CardContent className="pt-0">
+                  <a
+                    href={link.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
                       className="text-xs sm:text-sm text-muted-foreground hover:text-foreground transition-colors flex items-center justify-start gap-2 group/link pl-6"
-                    >
-                      <span className="truncate">{link.url}</span>
-                      <ExternalLink className="h-3 w-3 flex-shrink-0 opacity-0 group-hover/link:opacity-100 transition-opacity" />
-                    </a>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          )}
+                  >
+                    <span className="truncate">{link.url}</span>
+                    <ExternalLink className="h-3 w-3 flex-shrink-0 opacity-0 group-hover/link:opacity-100 transition-opacity" />
+                  </a>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        )}
 
-          {/* Edit Dialog */}
-          <Dialog open={!!editingLink} onOpenChange={(open) => !open && closeEditDialog()}>
+        {/* Edit Dialog */}
+        <Dialog open={!!editingLink} onOpenChange={(open) => !open && closeEditDialog()}>
             <DialogContent className="w-[95vw] max-w-md mx-auto">
-              <DialogHeader>
-                <DialogTitle>Edit Link</DialogTitle>
-              </DialogHeader>
-              <div className="space-y-4">
-                <div>
-                  <Label htmlFor="edit-url">URL</Label>
-                  <Input
-                    id="edit-url"
-                    placeholder="https://example.com"
-                    value={newLinkUrl}
-                    onChange={(e) => setNewLinkUrl(e.target.value)}
-                    onKeyPress={(e) => handleKeyPress(e, updateLink)}
-                    className="mt-1"
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="edit-name">Display Name</Label>
-                  <Input
-                    id="edit-name"
-                    placeholder="My Awesome Link"
-                    value={newLinkName}
-                    onChange={(e) => setNewLinkName(e.target.value)}
-                    onKeyPress={(e) => handleKeyPress(e, updateLink)}
-                    className="mt-1"
-                  />
-                </div>
+            <DialogHeader>
+              <DialogTitle>Edit Link</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div>
+                <Label htmlFor="edit-url">URL</Label>
+                <Input
+                  id="edit-url"
+                  placeholder="https://example.com"
+                  value={newLinkUrl}
+                  onChange={(e) => setNewLinkUrl(e.target.value)}
+                  onKeyPress={(e) => handleKeyPress(e, updateLink)}
+                  className="mt-1"
+                />
+              </div>
+              <div>
+                <Label htmlFor="edit-name">Display Name</Label>
+                <Input
+                  id="edit-name"
+                  placeholder="My Awesome Link"
+                  value={newLinkName}
+                  onChange={(e) => setNewLinkName(e.target.value)}
+                  onKeyPress={(e) => handleKeyPress(e, updateLink)}
+                  className="mt-1"
+                />
+              </div>
 
                 {/* Icon Section */}
                 <div className="space-y-2">
@@ -1363,16 +1404,16 @@ ${links.map(link => {
                 </div>
 
                 <div className="flex justify-end gap-2 pt-2">
-                  <Button variant="outline" onClick={closeEditDialog}>
-                    Cancel
-                  </Button>
-                  <Button onClick={updateLink} disabled={!newLinkUrl.trim() || !newLinkName.trim()}>
-                    Update Link
-                  </Button>
-                </div>
+                <Button variant="outline" onClick={closeEditDialog}>
+                  Cancel
+                </Button>
+                <Button onClick={updateLink} disabled={!newLinkUrl.trim() || !newLinkName.trim()}>
+                  Update Link
+                </Button>
               </div>
-            </DialogContent>
-          </Dialog>
+            </div>
+          </DialogContent>
+        </Dialog>
 
           {/* Delete Confirmation Dialog */}
           <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
@@ -1480,9 +1521,14 @@ ${links.map(link => {
                 Delete All
               </Button>
             </div>
-            
-            {/* Stats */}
+
+                    {/* Stats */}
             <div className="text-center text-xs sm:text-sm text-muted-foreground space-y-1">
+            <div className="mb-2">
+              <a href="/about" className="text-primary hover:underline text-xs">
+                About Link Manager
+              </a>
+            </div>
             <div>
               {sortedLinks.length > 0 ? (
                 <>
@@ -1496,7 +1542,7 @@ ${links.map(link => {
               ) : (
                 "No links yet - start by adding your first link"
               )}
-            </div>
+          </div>
             {(() => {
               const storageInfo = getStorageInfo()
               const totalIcons = links.length > 0 ? links.filter(link => link.iconUrl).length : 0
@@ -1505,7 +1551,14 @@ ${links.map(link => {
               
               return (
                 <div className="flex items-center justify-center gap-4 text-xs">
-                  <span>Storage: {storageInfo.size}KB</span>
+                  <span className="flex items-center gap-1">
+                    {isMobile ? (
+                      <Smartphone className="h-3 w-3" />
+                    ) : (
+                      <Monitor className="h-3 w-3" />
+                    )}
+                    Storage: {storageInfo.size}KB
+                  </span>
                   {totalIcons > 0 && (
                     <>
                       <span>•</span>
@@ -1517,11 +1570,11 @@ ${links.map(link => {
                         </>
                       )}
                     </>
-                  )}
-                </div>
+        )}
+      </div>
               )
             })()}
-          </div>
+    </div>
             </div>
         </div>
       </div>
