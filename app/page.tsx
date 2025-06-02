@@ -1524,11 +1524,6 @@ ${links.map(link => {
 
                     {/* Stats */}
             <div className="text-center text-xs sm:text-sm text-muted-foreground space-y-1">
-            <div className="mb-2">
-              <a href="/about" className="text-primary hover:underline text-xs">
-                About Link Manager
-              </a>
-            </div>
             <div>
               {sortedLinks.length > 0 ? (
                 <>
