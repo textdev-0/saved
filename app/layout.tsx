@@ -27,7 +27,7 @@ export const metadata: Metadata = {
     siteName: 'Link Manager',
     title: 'Link Manager - Organize Your Favorite Websites & Bookmarks',
     description: 'A powerful web-based link manager to organize, categorize, and manage your favorite websites and bookmarks. Import browser bookmarks, export collections, and access your links anywhere.',
-    url: 'https://your-domain.com', // Replace with your actual domain
+    url: process.env.NEXT_PUBLIC_SITE_URL || 'https://links-manager.com',
     images: [
       {
         url: '/icon-512x512.svg',
@@ -55,8 +55,7 @@ export const metadata: Metadata = {
     },
   },
   verification: {
-    // Add your Google Search Console verification code here
-    // google: 'your-google-verification-code',
+    google: process.env.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION,
   },
 }
 
@@ -73,7 +72,7 @@ const jsonLd = {
   '@type': 'WebApplication',
   name: 'Link Manager',
   description: 'A powerful web-based link manager to organize, categorize, and manage your favorite websites and bookmarks.',
-  url: 'https://your-domain.com', // Replace with your actual domain
+  url: process.env.NEXT_PUBLIC_SITE_URL || 'https://links-manager.com',
   applicationCategory: 'ProductivityApplication',
   operatingSystem: 'Web Browser',
   offers: {
