@@ -11,6 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useTheme } from "next-themes"
+import { Analytics } from "@vercel/analytics/react"
 
 // Manual CRC64 implementation using ISO polynomial (0x42F0E1EBA9EA3693)
 // Based on the algorithm from https://www.sunshine2k.de/articles/coding/crc/understanding_crc.html
@@ -1573,6 +1574,7 @@ ${links.map(link => {
             </div>
         </div>
       </div>
+      <Analytics />
     </>
   )
 } 
