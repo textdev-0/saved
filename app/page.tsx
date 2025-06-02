@@ -1020,7 +1020,7 @@ ${links.map(link => {
                     </Button>
                     <div id="additional-details" style={{display: 'none'}} className="space-y-3">
                                           <p className="text-muted-foreground max-w-2xl mx-auto text-sm sm:text-base leading-relaxed">
-                        You can Export your links to Import them on another device, or even Import your browsers Bookmarks toolbar.
+                        You can Export your links to use another device. 
                         Importing also works from your browsers existing Bookmarks!
                       </p>
                       <p className="text-muted-foreground max-w-2xl mx-auto text-sm sm:text-base leading-relaxed">
