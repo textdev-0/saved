@@ -25,8 +25,8 @@ export const metadata: Metadata = {
   openGraph: {
     type: 'website',
     siteName: 'Link Manager',
-    title: 'Link Manager - Organize Your Favorite Websites & Bookmarks',
-    description: 'A powerful web-based link manager to organize, categorize, and manage your favorite websites and bookmarks. Import browser bookmarks, export collections, and access your links anywhere.',
+    title: 'Link Manager',
+    description: 'Organise all of your links in one place.',
     url: process.env.NEXT_PUBLIC_SITE_URL || 'https://links-manager.com',
     images: [
       {
@@ -39,8 +39,8 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'Link Manager - Organize Your Favorite Websites & Bookmarks',
-    description: 'A powerful web-based link manager to organize, categorize, and manage your favorite websites and bookmarks.',
+    title: 'Link Manager',
+    description: 'Organise all of your links in one place.',
     images: ['/icon-512x512.svg'],
   },
   robots: {
@@ -55,7 +55,7 @@ export const metadata: Metadata = {
     },
   },
   verification: {
-    google: process.env.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION,
+    google: 'TUwLR3tfRnGWa5abZSvnXvmheTDdB_OdmQdqMPl7qMY',
   },
 }
 
@@ -71,7 +71,7 @@ const jsonLd = {
   '@context': 'https://schema.org',
   '@type': 'WebApplication',
   name: 'Link Manager',
-  description: 'A powerful web-based link manager to organize, categorize, and manage your favorite websites and bookmarks.',
+  description: 'Organise all of your links in one place.',
   url: process.env.NEXT_PUBLIC_SITE_URL || 'https://links-manager.com',
   applicationCategory: 'ProductivityApplication',
   operatingSystem: 'Web Browser',
