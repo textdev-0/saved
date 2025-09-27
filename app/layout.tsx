@@ -135,9 +135,6 @@ export default function RootLayout({
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
         />
-        
-        {/* PWA Install Prompt */}
-        <script src="/install-prompt.js" defer />
       </head>
       <body className={inter.className}>
         <ThemeProvider

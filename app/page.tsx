@@ -95,8 +95,6 @@ export default function LinkManager() {
   const importDialogTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const [showImportHelp, setShowImportHelp] = useState(false)
   const [isMobile, setIsMobile] = useState(false)
-  const [isOnline, setIsOnline] = useState(true)
-  const [showOfflineToast, setShowOfflineToast] = useState(false)
 
   // Handle hydration and device detection
   useEffect(() => {
@@ -122,52 +120,6 @@ export default function LinkManager() {
     window.addEventListener('resize', handleResize)
     return () => window.removeEventListener('resize', handleResize)
   }, [])
-
-  // Register service worker and handle offline/online status
-  useEffect(() => {
-    if (!mounted) return
-
-    // Check initial online status
-    setIsOnline(navigator.onLine)
-
-    // Register service worker
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker
-        .register('/service-worker.js')
-        .then((registration) => {
-          console.log('Service Worker registered:', registration)
-          
-          // Check for updates periodically
-          setInterval(() => {
-            registration.update()
-          }, 60000) // Check every minute
-        })
-        .catch((error) => {
-          console.error('Service Worker registration failed:', error)
-        })
-    }
-
-    // Handle online/offline events
-    const handleOnline = () => {
-      setIsOnline(true)
-      setShowOfflineToast(false)
-    }
-
-    const handleOffline = () => {
-      setIsOnline(false)
-      setShowOfflineToast(true)
-      // Auto-hide toast after 5 seconds
-      setTimeout(() => setShowOfflineToast(false), 5000)
-    }
-
-    window.addEventListener('online', handleOnline)
-    window.addEventListener('offline', handleOffline)
-
-    return () => {
-      window.removeEventListener('online', handleOnline)
-      window.removeEventListener('offline', handleOffline)
-    }
-  }, [mounted])
 
   // Load data from localStorage on mount
   useEffect(() => {
@@ -235,13 +187,6 @@ export default function LinkManager() {
   }, [mounted, links, loadingIcons]) // Re-run when links or loading state changes
 
   const generateFavicon = async (url: string) => {
-    // Check if offline
-    if (!navigator.onLine) {
-      alert('You need to be online to generate favicons. You can still upload custom icons.')
-      setIsGeneratingIcon(false)
-      return
-    }
-    
     setIsGeneratingIcon(true)
     try {
       const urlObj = new URL(url.startsWith("http") ? url : `https://${url}`)
@@ -812,18 +757,6 @@ ${links.map(link => {
 
   return (
     <>
-      {/* Offline Toast Notification */}
-      {showOfflineToast && (
-        <div className="fixed top-4 left-1/2 transform -translate-x-1/2 z-50 animate-in slide-in-from-top-2 fade-in duration-300">
-          <div className="bg-yellow-500 dark:bg-yellow-600 text-white px-4 py-2 rounded-lg shadow-lg flex items-center gap-2">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            <span className="text-sm font-medium">You're offline - but the app still works!</span>
-          </div>
-        </div>
-      )}
-      
       <div className={`min-h-screen bg-background transition-colors duration-700 ${currentFontClass}`}>
         <div className="container mx-auto px-3 sm:px-4 py-4 sm:py-8 max-w-7xl 2xl:max-w-none 2xl:max-w-[1600px]">
         {/* Header */}
@@ -835,14 +768,6 @@ ${links.map(link => {
           </div>
 
             <div className="flex items-center justify-center sm:justify-end gap-2 flex-wrap">
-            {/* Offline Indicator */}
-            {!isOnline && (
-              <div className="flex items-center gap-1 px-2 py-1 bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400 rounded text-xs font-medium">
-                <div className="w-2 h-2 bg-yellow-500 rounded-full animate-pulse"></div>
-                <span>Offline</span>
-              </div>
-            )}
-            
             {/* Font Selector */}
               <div className="relative">
             <Select value={selectedFont} onValueChange={setSelectedFont}>
@@ -1279,13 +1204,7 @@ ${links.map(link => {
                       <GripVertical className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
                     </div>
                     <CardTitle className="text-sm sm:text-base pl-6">
-                      <a
-                        href={link.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-center gap-2 truncate min-w-0 flex-1 hover:text-primary transition-colors"
-                        onClick={(e) => e.stopPropagation()}
-                      >
+                      <div className="flex items-center gap-2 truncate min-w-0 flex-1">
                         {(link.iconUrl || loadingIcons.has(link.id)) && (
                           <div className="w-4 h-4 flex-shrink-0 relative">
                             {loadingIcons.has(link.id) && (
@@ -1324,7 +1243,7 @@ ${links.map(link => {
                         {link.starred && (
                           <Star className="h-3 w-3 text-yellow-500 fill-yellow-500 flex-shrink-0" />
                         )}
-                      </a>
+                      </div>
                     </CardTitle>
                     <div className="relative mt-1 h-8">
                       <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
