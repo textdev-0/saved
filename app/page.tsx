@@ -1204,7 +1204,13 @@ ${links.map(link => {
                       <GripVertical className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
                     </div>
                     <CardTitle className="text-sm sm:text-base pl-6">
-                      <div className="flex items-center gap-2 truncate min-w-0 flex-1">
+                      <a
+                        href={link.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-2 truncate min-w-0 flex-1 hover:text-primary transition-colors"
+                        onClick={(e) => e.stopPropagation()}
+                      >
                         {(link.iconUrl || loadingIcons.has(link.id)) && (
                           <div className="w-4 h-4 flex-shrink-0 relative">
                             {loadingIcons.has(link.id) && (
@@ -1243,7 +1249,7 @@ ${links.map(link => {
                         {link.starred && (
                           <Star className="h-3 w-3 text-yellow-500 fill-yellow-500 flex-shrink-0" />
                         )}
-                      </div>
+                      </a>
                     </CardTitle>
                     <div className="relative mt-1 h-8">
                       <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
