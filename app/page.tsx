@@ -3,7 +3,11 @@
 import type React from "react"
 
 import { useState, useEffect, useRef } from "react"
-import { Plus, ExternalLink, Edit2, Trash2, Moon, Sun, Type, Image, X, Star, GripVertical, Upload, Zap, BookOpen, Github, Twitter, Youtube, Globe, Lightbulb, ChevronDown, Search, Download, FileUp, Loader2, FileX2, Check, XCircle, Monitor, Smartphone } from "lucide-react"
+import { Plus, ExternalLink, Edit2, Trash2, Moon, Sun, Type, Image, X, Star, GripVertical, Upload, Zap, BookOpen, Github, Twitter, Youtube, Globe, Lightbulb, ChevronDown, Search, Download, FileUp, Loader2, FileX2, Check, XCircle, Monitor, Smartphone, QrCode, Camera, FileDown, RefreshCw, Settings, Copy } from "lucide-react"
+import QRCode from "qrcode"
+import { Html5Qrcode } from "html5-qrcode"
+import git from "isomorphic-git"
+import http from "isomorphic-git/http/web"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -95,6 +99,46 @@ export default function LinkManager() {
   const importDialogTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const [showImportHelp, setShowImportHelp] = useState(false)
   const [isMobile, setIsMobile] = useState(false)
+  
+  // QR Code states
+  const [isQRExportOpen, setIsQRExportOpen] = useState(false)
+  const [isQRImportOpen, setIsQRImportOpen] = useState(false)
+  const [qrCodeImages, setQrCodeImages] = useState<string[]>([])
+  const [currentQRIndex, setCurrentQRIndex] = useState(0)
+  const [isGeneratingQR, setIsGeneratingQR] = useState(false)
+  const [scannedChunks, setScannedChunks] = useState<string[]>([])
+  const [scannerReady, setScannerReady] = useState(false)
+  const [useColorQR, setUseColorQR] = useState(false)
+  const [importMode, setImportMode] = useState<'camera' | 'file'>('camera')
+  const qrScannerRef = useRef<Html5Qrcode | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [showExportDropdown, setShowExportDropdown] = useState(false)
+  const [showImportDropdown, setShowImportDropdown] = useState(false)
+  const [showDedupeDialog, setShowDedupeDialog] = useState(false)
+  const [dedupeMode, setDedupeMode] = useState<'url' | 'name'>('url')
+  
+  // Git Sync states
+  const [gitConfigured, setGitConfigured] = useState(false)
+  const [gitSyncEnabled, setGitSyncEnabled] = useState(true)
+  const [isSyncing, setIsSyncing] = useState(false)
+  const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null)
+  const [gitSetupOpen, setGitSetupOpen] = useState(false)
+  const [gitRepoUrl, setGitRepoUrl] = useState("")
+  const [gitUsername, setGitUsername] = useState("")
+  const [gitPassword, setGitPassword] = useState("")
+  const [gitBranch, setGitBranch] = useState("main")
+  const [syncStatus, setSyncStatus] = useState<string>("")
+  
+  // Toast notification system
+  const [toasts, setToasts] = useState<Array<{id: string, message: string, type: 'success' | 'error' | 'info'}>>([])
+  
+  const showToast = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
+    const id = Date.now().toString()
+    setToasts(prev => [...prev, { id, message, type }])
+    setTimeout(() => {
+      setToasts(prev => prev.filter(t => t.id !== id))
+    }, 4000)
+  }
 
   // Handle hydration and device detection
   useEffect(() => {
@@ -186,8 +230,10 @@ export default function LinkManager() {
     }
   }, [mounted, links, loadingIcons]) // Re-run when links or loading state changes
 
-  const generateFavicon = async (url: string) => {
-    setIsGeneratingIcon(true)
+  const generateFavicon = async (url: string): Promise<string | null> => {
+    const wasGenerating = isGeneratingIcon
+    if (!wasGenerating) setIsGeneratingIcon(true)
+    
     try {
       const urlObj = new URL(url.startsWith("http") ? url : `https://${url}`)
       const domain = urlObj.hostname
@@ -271,21 +317,31 @@ export default function LinkManager() {
       const result = await tryFaviconSource(0)
       
       if (result) {
-        setNewLinkIcon(result)
-        setShowIcon(true)
-        setIsGeneratingIcon(false)
+        // Only update UI state if this was called from the UI
+        if (!wasGenerating) {
+          setNewLinkIcon(result)
+          setShowIcon(true)
+          setIsGeneratingIcon(false)
+        }
+        return result
       } else {
         console.warn("Could not load favicon for", domain, "- tried all sources")
-        setShowIcon(false)
-        setNewLinkIcon("")
-        setIsGeneratingIcon(false)
+        if (!wasGenerating) {
+          setShowIcon(false)
+          setNewLinkIcon("")
+          setIsGeneratingIcon(false)
+        }
+        return null
       }
       
     } catch (error) {
       console.error("Error generating favicon:", error)
-      setShowIcon(false)
-      setNewLinkIcon("")
-      setIsGeneratingIcon(false)
+      if (!wasGenerating) {
+        setShowIcon(false)
+        setNewLinkIcon("")
+        setIsGeneratingIcon(false)
+      }
+      return null
     }
   }
 
@@ -319,22 +375,18 @@ export default function LinkManager() {
       return
     }
 
-    // Clean up old icon if it was a data URL
-    if (showIcon && newLinkIcon?.startsWith('data:')) {
-      console.log('Replaced custom icon with new upload')
-    }
-
     const reader = new FileReader()
     reader.onload = (e) => {
       const dataUrl = e.target?.result as string
       if (dataUrl) {
         setNewLinkIcon(dataUrl)
         setShowIcon(true)
+        showToast('Icon uploaded successfully', 'success')
       }
       setIsUploadingIcon(false)
     }
     reader.onerror = () => {
-      alert('Error reading the file. Please try again.')
+      showToast('Error reading the file. Please try again.', 'error')
       setIsUploadingIcon(false)
     }
     reader.readAsDataURL(file)
@@ -380,6 +432,7 @@ export default function LinkManager() {
     setNewLinkIcon("")
     setShowIcon(false)
     setIsAddDialogOpen(false)
+    showToast('Link added successfully', 'success')
   }
 
   const updateLink = () => {
@@ -407,17 +460,12 @@ export default function LinkManager() {
     setNewLinkName("")
     setNewLinkIcon("")
     setShowIcon(false)
+    showToast('Link updated successfully', 'success')
   }
 
   const deleteLink = (id: string) => {
-    // Clean up any data URL icons before deletion to prevent storage bloat
-    const linkToDelete = links.find(link => link.id === id)
-    if (linkToDelete?.iconUrl?.startsWith('data:')) {
-      // This was a custom uploaded icon - it's now being cleaned up automatically
-      console.log('Cleaned up custom icon for deleted link:', linkToDelete.displayName)
-    }
-    
     setLinks((prev) => prev.filter((link) => link.id !== id))
+    showToast('Link deleted', 'info')
   }
 
   const toggleStar = (id: string) => {
@@ -535,10 +583,6 @@ export default function LinkManager() {
   })
 
   const clearIcon = () => {
-    // Clean up data URL if it was a custom uploaded icon
-    if (showIcon && newLinkIcon?.startsWith('data:')) {
-      console.log('Manually removed custom icon')
-    }
     setShowIcon(false)
     setNewLinkIcon("")
   }
@@ -590,6 +634,31 @@ export default function LinkManager() {
     return crc64(linkJson).toUpperCase();
   };
 
+  // De-duplicate functionality
+  const handleDeduplicate = () => {
+    const seen = new Set<string>()
+    const uniqueLinks: Link[] = []
+    let duplicateCount = 0
+    
+    links.forEach(link => {
+      const key = dedupeMode === 'url' ? link.url : link.displayName.toLowerCase()
+      if (!seen.has(key)) {
+        seen.add(key)
+        uniqueLinks.push(link)
+      } else {
+        duplicateCount++
+      }
+    })
+    
+    if (duplicateCount > 0) {
+      setLinks(uniqueLinks)
+      showToast(`Removed ${duplicateCount} duplicate link${duplicateCount > 1 ? 's' : ''}`, 'success')
+    } else {
+      showToast('No duplicates found', 'info')
+    }
+    setShowDedupeDialog(false)
+  }
+
   // Delete all functionality
   const handleDeleteAll = () => {
     let linksToDelete: Link[] = []
@@ -607,7 +676,7 @@ export default function LinkManager() {
     }
     
     if (linksToDelete.length === 0) {
-      alert(`No ${deleteType === "all" ? "links" : deleteType} to delete`)
+      showToast(`No ${deleteType === "all" ? "links" : deleteType} to delete`, 'info')
       setDeleteDialogOpen(false)
       return
     }
@@ -616,7 +685,7 @@ export default function LinkManager() {
     const idsToDelete = new Set(linksToDelete.map(link => link.id))
     setLinks(prev => prev.filter(link => !idsToDelete.has(link.id)))
     setDeleteDialogOpen(false)
-    alert(`Deleted ${linksToDelete.length} ${deleteType === "all" ? "links" : deleteType}`)
+    showToast(`Deleted ${linksToDelete.length} ${deleteType === "all" ? "links" : deleteType}`, 'success')
   }
 
   // Export bookmarks to HTML file (Netscape bookmark format)
@@ -640,7 +709,9 @@ ${links.map(link => {
   const addDate = Math.floor(Date.now() / 1000)
   const starred = link.starred ? ' STARRED="true"' : ''
   const icon = link.iconUrl ? ` ICON="${link.iconUrl}"` : ''
-  return `        <DT><A HREF="${link.url}" ADD_DATE="${addDate}"${icon}${starred}>${link.displayName}</A>`
+  const hasIcon = link.iconUrl ? ' HAS_ICON="true"' : ' HAS_ICON="false"'
+  const customIcon = link.iconUrl?.startsWith('data:') ? ' CUSTOM_ICON="true"' : ''
+  return `        <DT><A HREF="${link.url}" ADD_DATE="${addDate}"${icon}${starred}${hasIcon}${customIcon}>${link.displayName}</A>`
 }).join('\n')}
     </DL><p>
 </DL><p>`
@@ -691,6 +762,8 @@ ${links.map(link => {
         const displayName = element.textContent || ''
         const starred = element.getAttribute('starred') === 'true' || element.getAttribute('STARRED') === 'true'
         const iconUrl = element.getAttribute('icon') || element.getAttribute('ICON') || undefined
+        const hasIcon = element.getAttribute('has_icon') === 'true' || element.getAttribute('HAS_ICON') === 'true'
+        const isCustomIcon = element.getAttribute('custom_icon') === 'true' || element.getAttribute('CUSTOM_ICON') === 'true'
         
         if (url && displayName) {
           // Check if link already exists
@@ -704,12 +777,31 @@ ${links.map(link => {
               iconUrl,
               order: links.length + importedLinks.length
             })
+            
+            // Log icon info for debugging (optional metadata)
+            if (hasIcon && isCustomIcon) {
+              console.log(`Imported "${displayName}" with custom icon`)
+            }
           }
         }
       })
       
       if (importedLinks.length > 0) {
         setLinks(prev => [...prev, ...importedLinks])
+        
+        // Auto-generate icons for links without icons
+        importedLinks.forEach(link => {
+          if (!link.iconUrl) {
+            generateFavicon(link.url).then(iconUrl => {
+              if (iconUrl) {
+                setLinks(prev => prev.map(l => 
+                  l.id === link.id ? { ...l, iconUrl } : l
+                ))
+              }
+            })
+          }
+        })
+        
         // Set loading icons for external URLs
         const externalIcons = importedLinks.filter(link => link.iconUrl && !link.iconUrl.startsWith('data:'))
         if (externalIcons.length > 0) {
@@ -719,13 +811,13 @@ ${links.map(link => {
             return newSet
           })
         }
-        alert(`Successfully imported ${importedLinks.length} new links!`)
+        showToast(`Successfully imported ${importedLinks.length} new links!`, 'success')
       } else {
-        alert('No new links to import (all links already exist or no valid links found)')
+        showToast('No new links to import (all links already exist or no valid links found)', 'info')
       }
     } catch (error) {
       console.error('Error importing bookmarks:', error)
-      alert('Error importing bookmarks. Please ensure the file is a valid HTML bookmarks file.')
+      showToast('Error importing bookmarks. Please ensure the file is a valid HTML bookmarks file.', 'error')
     } finally {
       setIsImporting(false)
     }
@@ -750,6 +842,517 @@ ${links.map(link => {
       importDialogTimeoutRef.current = null
     }, 3000) // 3 second timeout
   }
+
+  // QR Code Export - generates QR codes with chunking support
+  const exportAsQRCode = async (isRegeneration = false, forceHighDensity?: boolean) => {
+    setIsGeneratingQR(true)
+    if (!isRegeneration) {
+      setIsQRExportOpen(true)
+    }
+    
+    try {
+      // Small delay to show loading state
+      await new Promise(resolve => setTimeout(resolve, 300))
+      
+      // Strip out iconUrl from links - icons will be regenerated on the receiving device
+      const linksWithoutIcons = links.map(link => {
+        const { iconUrl, ...linkWithoutIcon } = link
+        return linkWithoutIcon
+      })
+      
+      const dataToExport = JSON.stringify(linksWithoutIcons)
+      
+      // QR codes can hold ~2953 bytes (alphanumeric) or ~4296 bytes (binary)
+      // Efficient mode uses lower error correction and tighter margins for more data
+      // Use forceHighDensity if provided, otherwise use state
+      const highDensityMode = forceHighDensity !== undefined ? forceHighDensity : useColorQR
+      const CHUNK_SIZE = highDensityMode ? 2800 : 2000
+      const chunks: string[] = []
+      
+      for (let i = 0; i < dataToExport.length; i += CHUNK_SIZE) {
+        chunks.push(dataToExport.slice(i, i + CHUNK_SIZE))
+      }
+      
+      // Generate QR codes for each chunk
+      const qrImages: string[] = []
+      for (let i = 0; i < chunks.length; i++) {
+        // Add metadata to each chunk: {index}/{total}|{data}
+        const chunkWithMetadata = `${i + 1}/${chunks.length}|${chunks[i]}`
+        
+        if (highDensityMode) {
+          // Efficient mode: lower error correction (L), tighter margin, larger size
+          const qrDataUrl = await QRCode.toDataURL(chunkWithMetadata, {
+            width: 600,
+            margin: 1,
+            errorCorrectionLevel: 'L', // Lowest error correction = more data capacity
+            scale: 8
+          })
+          qrImages.push(qrDataUrl)
+        } else {
+          // Standard mode: medium error correction, normal margin
+          const qrDataUrl = await QRCode.toDataURL(chunkWithMetadata, {
+            width: 512,
+            margin: 2,
+            errorCorrectionLevel: 'M'
+          })
+          qrImages.push(qrDataUrl)
+        }
+      }
+      
+      setQrCodeImages(qrImages)
+      setCurrentQRIndex(0)
+      showToast('QR codes generated successfully', 'success')
+    } catch (error) {
+      console.error('Error generating QR codes:', error)
+      showToast('Error generating QR codes. Your data might be too large.', 'error')
+      setIsQRExportOpen(false)
+    } finally {
+      setIsGeneratingQR(false)
+    }
+  }
+
+  // QR Code Import - scans QR codes and merges data
+  const startQRScanner = async () => {
+    try {
+      const html5QrCode = new Html5Qrcode("qr-reader")
+      qrScannerRef.current = html5QrCode
+      
+      await html5QrCode.start(
+        { facingMode: "environment" },
+        {
+          fps: 10,
+          qrbox: { width: 250, height: 250 }
+        },
+        onScanSuccess,
+        () => {} // Ignore scan failures
+      )
+      
+      setScannerReady(true)
+    } catch (err) {
+      console.error('Error starting QR scanner:', err)
+      showToast('Unable to access camera. Please ensure camera permissions are granted.', 'error')
+      setIsQRImportOpen(false)
+    }
+  }
+
+  const onScanSuccess = (decodedText: string) => {
+    // Parse the QR code data
+    try {
+      // Check if it's a chunked format: {index}/{total}|{data}
+      const chunkMatch = decodedText.match(/^(\d+)\/(\d+)\|(.+)$/)
+      
+      if (chunkMatch) {
+        const [, indexStr, totalStr, data] = chunkMatch
+        const index = parseInt(indexStr)
+        const total = parseInt(totalStr)
+        
+        // Add to scanned chunks if not already present
+        setScannedChunks(prev => {
+          if (prev.includes(decodedText)) {
+            return prev // Already scanned this chunk
+          }
+          const newChunks = [...prev, decodedText]
+          
+          // If we have all chunks, try to reconstruct
+          if (newChunks.length === total) {
+            reconstructAndImport(newChunks, total)
+          }
+          
+          return newChunks
+        })
+        
+        showToast(`Scanned chunk ${index} of ${total}`, 'success')
+      } else {
+        // Not chunked, import directly
+        importFromQRData(decodedText)
+      }
+    } catch (error) {
+      console.error('Error processing QR code:', error)
+      showToast('Invalid QR code format', 'error')
+    }
+  }
+
+  const reconstructAndImport = (chunks: string[], total: number) => {
+    try {
+      // Sort chunks by index and extract data
+      const sortedData = chunks
+        .map(chunk => {
+          const match = chunk.match(/^(\d+)\/\d+\|(.+)$/)
+          if (!match) return null
+          return { index: parseInt(match[1]), data: match[2] }
+        })
+        .filter(Boolean)
+        .sort((a, b) => a!.index - b!.index)
+        .map(item => item!.data)
+        .join('')
+      
+      importFromQRData(sortedData)
+    } catch (error) {
+      console.error('Error reconstructing data:', error)
+      showToast('Error reconstructing data from QR codes', 'error')
+    }
+  }
+
+  const importFromQRData = (dataString: string) => {
+    try {
+      const importedLinks: Link[] = JSON.parse(dataString)
+      
+      // Merge with existing links (skip duplicates by URL)
+      const newLinks = importedLinks.filter(
+        importedLink => !links.some(link => link.url === importedLink.url)
+      )
+      
+      if (newLinks.length > 0) {
+        // Assign new IDs and orders
+        const linksWithNewIds = newLinks.map((link, index) => ({
+          ...link,
+          id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
+          order: links.length + index
+        }))
+        
+        setLinks(prev => [...prev, ...linksWithNewIds])
+        
+        // Auto-generate icons for links without icons
+        linksWithNewIds.forEach(link => {
+          if (!link.iconUrl) {
+            generateFavicon(link.url).then(iconUrl => {
+              if (iconUrl) {
+                setLinks(prev => prev.map(l => 
+                  l.id === link.id ? { ...l, iconUrl } : l
+                ))
+              }
+            })
+          }
+        })
+        
+        // Set loading icons for external URLs
+        const externalIcons = linksWithNewIds.filter(link => link.iconUrl && !link.iconUrl.startsWith('data:'))
+        if (externalIcons.length > 0) {
+          setLoadingIcons(prev => {
+            const newSet = new Set(prev)
+            externalIcons.forEach(link => newSet.add(link.id))
+            return newSet
+          })
+        }
+        
+        showToast(`Successfully imported ${newLinks.length} new links!`, 'success')
+      } else {
+        showToast('No new links to import (all links already exist)', 'info')
+      }
+      
+      stopQRScanner()
+      setIsQRImportOpen(false)
+      setScannedChunks([])
+    } catch (error) {
+      console.error('Error importing from QR code:', error)
+      showToast('Error importing data. Please try again.', 'error')
+    }
+  }
+
+  const stopQRScanner = async () => {
+    if (qrScannerRef.current) {
+      try {
+        await qrScannerRef.current.stop()
+        qrScannerRef.current = null
+        setScannerReady(false)
+      } catch (error) {
+        console.error('Error stopping scanner:', error)
+      }
+    }
+  }
+
+  const closeQRImport = () => {
+    stopQRScanner()
+    setIsQRImportOpen(false)
+    setScannedChunks([])
+    setImportMode('camera')
+  }
+
+  // Handle QR code image file upload
+  const handleQRImageUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    try {
+      // Create a temporary element for file scanning
+      const tempId = 'qr-reader-temp-' + Date.now()
+      const tempDiv = document.createElement('div')
+      tempDiv.id = tempId
+      tempDiv.style.display = 'none'
+      document.body.appendChild(tempDiv)
+      
+      const html5QrCode = new Html5Qrcode(tempId)
+      
+      try {
+        const result = await html5QrCode.scanFile(file, true)
+        onScanSuccess(result)
+        showToast('QR code scanned successfully', 'success')
+      } finally {
+        // Clean up
+        try {
+          await html5QrCode.clear()
+        } catch (e) {
+          // Ignore cleanup errors
+        }
+        document.body.removeChild(tempDiv)
+      }
+    } catch (error) {
+      console.error('Error scanning QR from image:', error)
+      showToast('Could not read QR code from image. Please try another image or use camera mode.', 'error')
+    }
+
+    // Reset the input
+    event.target.value = ''
+  }
+
+  // Cleanup QR scanner on unmount
+  useEffect(() => {
+    return () => {
+      if (qrScannerRef.current) {
+        qrScannerRef.current.stop().catch(console.error)
+      }
+    }
+  }, [])
+
+  // Load Git configuration from localStorage
+  useEffect(() => {
+    if (mounted) {
+      const savedGitConfig = localStorage.getItem("linkManager_gitConfig")
+      if (savedGitConfig) {
+        try {
+          const config = JSON.parse(savedGitConfig)
+          setGitRepoUrl(config.repoUrl || "")
+          setGitUsername(config.username || "")
+          setGitPassword(config.password || "")
+          setGitBranch(config.branch || "main")
+          setGitConfigured(!!config.repoUrl)
+          setGitSyncEnabled(config.syncEnabled !== false)
+        } catch (error) {
+          console.error("Error loading Git config:", error)
+        }
+      }
+    }
+  }, [mounted])
+
+  // Save Git configuration to localStorage
+  const saveGitConfig = () => {
+    const config = {
+      repoUrl: gitRepoUrl,
+      username: gitUsername,
+      password: gitPassword,
+      branch: gitBranch,
+      syncEnabled: gitSyncEnabled
+    }
+    localStorage.setItem("linkManager_gitConfig", JSON.stringify(config))
+    setGitConfigured(!!gitRepoUrl)
+  }
+
+  // Git sync function
+  const syncWithGit = async () => {
+    if (!gitConfigured || !gitRepoUrl) {
+      showToast("Please configure Git sync first", "error")
+      setGitSetupOpen(true)
+      return
+    }
+
+    setIsSyncing(true)
+    setSyncStatus("Syncing...")
+
+    try {
+      // Use Lightning FS (in-memory filesystem for browser)
+      const fs = typeof window !== 'undefined' ? (await import('@isomorphic-git/lightning-fs')).default : null
+      if (!fs) throw new Error("Filesystem not available")
+      
+      const pfs = new fs('link-manager-git')
+      const dir = '/repo'
+
+      // Authentication
+      const onAuth = () => ({
+        username: gitUsername,
+        password: gitPassword
+      })
+
+      // Check if repo exists
+      let repoExists = false
+      try {
+        await pfs.promises.readdir(dir)
+        repoExists = true
+      } catch (e) {
+        // Repo doesn't exist, will clone
+      }
+
+      if (!repoExists) {
+        // Clone repository
+        setSyncStatus("Cloning repository...")
+        await git.clone({
+          fs: pfs,
+          http,
+          dir,
+          url: gitRepoUrl,
+          ref: gitBranch,
+          singleBranch: true,
+          depth: 1,
+          onAuth
+        })
+      } else {
+        // Pull latest changes
+        setSyncStatus("Pulling changes...")
+        await git.pull({
+          fs: pfs,
+          http,
+          dir,
+          ref: gitBranch,
+          author: {
+            name: gitUsername || 'Link Manager',
+            email: `${gitUsername}@linkmanager.local`
+          },
+          onAuth
+        })
+      }
+
+      // Read the current file
+      let remoteLinks: Link[] = []
+      try {
+        const fileContent = await pfs.promises.readFile(`${dir}/links.html`, 'utf8')
+        remoteLinks = parseHTMLBookmarks(fileContent)
+      } catch (e) {
+        // File doesn't exist yet
+      }
+
+      // Merge with local links (prefer local, add remote ones that don't exist)
+      const mergedLinks = [...links]
+      remoteLinks.forEach(remoteLink => {
+        if (!links.some(l => l.url === remoteLink.url)) {
+          mergedLinks.push({
+            ...remoteLink,
+            id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
+            order: mergedLinks.length
+          })
+        }
+      })
+
+      if (mergedLinks.length !== links.length) {
+        setLinks(mergedLinks)
+      }
+
+      // Export current links to HTML
+      const bookmarkHTML = generateBookmarkHTML(mergedLinks)
+      await pfs.promises.writeFile(`${dir}/links.html`, bookmarkHTML, 'utf8')
+
+      // Add, commit, and push
+      setSyncStatus("Committing changes...")
+      await git.add({ fs: pfs, dir, filepath: 'links.html' })
+      
+      await git.commit({
+        fs: pfs,
+        dir,
+        message: `Update links - ${new Date().toISOString()}`,
+        author: {
+          name: gitUsername || 'Link Manager',
+          email: `${gitUsername}@linkmanager.local`
+        }
+      })
+
+      setSyncStatus("Pushing changes...")
+      await git.push({
+        fs: pfs,
+        http,
+        dir,
+        remote: 'origin',
+        ref: gitBranch,
+        onAuth
+      })
+
+      setLastSyncTime(new Date())
+      setSyncStatus("Synced successfully!")
+      setTimeout(() => setSyncStatus(""), 3000)
+    } catch (error: any) {
+      console.error("Git sync error:", error)
+      setSyncStatus(`Sync failed: ${error.message}`)
+      setTimeout(() => setSyncStatus(""), 5000)
+    } finally {
+      setIsSyncing(false)
+    }
+  }
+
+  // Helper function to parse HTML bookmarks (from Git)
+  const parseHTMLBookmarks = (html: string): Link[] => {
+    const parser = new DOMParser()
+    const doc = parser.parseFromString(html, 'text/html')
+    const bookmarkElements = doc.querySelectorAll('a[href]')
+    const parsedLinks: Link[] = []
+    
+    bookmarkElements.forEach((element, index) => {
+      const url = element.getAttribute('href')
+      const displayName = element.textContent || ''
+      const starred = element.getAttribute('starred') === 'true' || element.getAttribute('STARRED') === 'true'
+      const iconUrl = element.getAttribute('icon') || element.getAttribute('ICON') || undefined
+      const hasIcon = element.getAttribute('has_icon') === 'true' || element.getAttribute('HAS_ICON') === 'true'
+      const isCustomIcon = element.getAttribute('custom_icon') === 'true' || element.getAttribute('CUSTOM_ICON') === 'true'
+      
+      if (url && displayName) {
+        parsedLinks.push({
+          id: Date.now().toString() + index,
+          url,
+          displayName,
+          starred,
+          iconUrl,
+          order: index
+        })
+        
+        // Log icon info for debugging (optional metadata)
+        if (hasIcon && isCustomIcon) {
+          console.log(`Git sync: Imported "${displayName}" with custom icon`)
+        }
+      }
+    })
+    
+    return parsedLinks
+  }
+
+  // Helper function to generate bookmark HTML
+  const generateBookmarkHTML = (linksToExport: Link[]): string => {
+    return `<!DOCTYPE NETSCAPE-Bookmark-file-1>
+<!-- This is an automatically generated file.
+     It will be read and overwritten.
+     DO NOT EDIT! -->
+<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=UTF-8">
+<TITLE>Bookmarks</TITLE>
+<H1>Bookmarks</H1>
+<DL><p>
+    <DT><H3 ADD_DATE="${Math.floor(Date.now() / 1000)}" LAST_MODIFIED="${Math.floor(Date.now() / 1000)}">Link Manager Export</H3>
+    <DL><p>
+${linksToExport.map(link => {
+  const addDate = Math.floor(Date.now() / 1000)
+  const starred = link.starred ? ' STARRED="true"' : ''
+  const icon = link.iconUrl ? ` ICON="${link.iconUrl}"` : ''
+  const hasIcon = link.iconUrl ? ' HAS_ICON="true"' : ' HAS_ICON="false"'
+  const customIcon = link.iconUrl?.startsWith('data:') ? ' CUSTOM_ICON="true"' : ''
+  return `        <DT><A HREF="${link.url}" ADD_DATE="${addDate}"${icon}${starred}${hasIcon}${customIcon}>${link.displayName}</A>`
+}).join('\n')}
+    </DL><p>
+</DL><p>`
+  }
+
+  // Auto-sync on changes (debounced)
+  useEffect(() => {
+    if (!gitConfigured || !gitSyncEnabled || !mounted) return
+
+    const syncTimeout = setTimeout(() => {
+      syncWithGit()
+    }, 5000) // Sync 5 seconds after last change
+
+    return () => clearTimeout(syncTimeout)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [links, gitConfigured, gitSyncEnabled, mounted])
+  
+  // Save Git sync status when it changes
+  useEffect(() => {
+    if (gitConfigured) {
+      saveGitConfig()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gitSyncEnabled])
 
   if (!mounted) {
     return null
@@ -1031,11 +1634,11 @@ ${links.map(link => {
                     </Button>
                     <div id="additional-details" style={{display: 'none'}} className="space-y-3">
                                           <p className="text-muted-foreground max-w-2xl mx-auto text-sm sm:text-base leading-relaxed">
-                        You can Export your links to use another device. 
+                        You can Export your links to use another device (via file or QR code). 
                         Importing also works from your browsers existing Bookmarks!
                       </p>
                       <p className="text-muted-foreground max-w-2xl mx-auto text-sm sm:text-base leading-relaxed">
-                        Don't worry, the links never leave your device. Nothing is "Uploaded" to a web server, only to your device. The only web interaction is to get a websites icon.
+                        Don't worry, the links never leave your device. QR code sync works completely offline!
                       </p>
                     </div>
                   </div>
@@ -1497,46 +2100,157 @@ ${links.map(link => {
                 />
                 Support me
               </a>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => exportBookmarks()}
-                className="gap-2"
-                disabled={isExporting}
-              >
-                {isExporting ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Download className="h-4 w-4" />
-                )}
-                Export
-              </Button>
+              {/* Export Dropdown */}
               <div className="relative">
-                <input
-                  type="file"
-                  accept=".html"
-                  onChange={handleImportBookmarks}
-                  onClick={handleImportDialogOpen}
-                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                  id="import-bookmarks"
-                />
                 <Button
                   variant="outline"
                   size="sm"
+                  onClick={() => setShowExportDropdown(!showExportDropdown)}
                   className="gap-2"
-                  asChild
-                  disabled={isImporting && !isImportDialogOpen}
+                  disabled={links.length === 0}
                 >
-                  <label htmlFor="import-bookmarks" className="cursor-pointer flex items-center gap-2">
-                    {isImporting ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <FileUp className="h-4 w-4" />
-                    )}
-                    Import
-                  </label>
+                  <Download className="h-4 w-4" />
+                  Export
+                  <ChevronDown className="h-3 w-3" />
+                </Button>
+                {showExportDropdown && (
+                  <>
+                    <div 
+                      className="fixed inset-0 z-40" 
+                      onClick={() => setShowExportDropdown(false)}
+                    />
+                    <div className="absolute right-0 top-full mt-1 z-50 min-w-[160px] rounded-md border bg-popover p-1 shadow-md">
+                      <button
+                        onClick={() => {
+                          setShowExportDropdown(false)
+                          exportBookmarks()
+                        }}
+                        disabled={isExporting}
+                        className="w-full flex items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground disabled:opacity-50 disabled:pointer-events-none"
+                      >
+                        {isExporting ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <FileDown className="h-4 w-4" />
+                        )}
+                        HTML File
+                      </button>
+                      <button
+                        onClick={() => {
+                          setShowExportDropdown(false)
+                          exportAsQRCode()
+                        }}
+                        disabled={isGeneratingQR}
+                        className="w-full flex items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground disabled:opacity-50 disabled:pointer-events-none"
+                      >
+                        {isGeneratingQR ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <QrCode className="h-4 w-4" />
+                        )}
+                        QR Code
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+
+              {/* Import Dropdown */}
+              <div className="relative">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowImportDropdown(!showImportDropdown)}
+                  className="gap-2"
+                >
+                  <FileUp className="h-4 w-4" />
+                  Import
+                  <ChevronDown className="h-3 w-3" />
+                </Button>
+                {showImportDropdown && (
+                  <>
+                    <div 
+                      className="fixed inset-0 z-40" 
+                      onClick={() => setShowImportDropdown(false)}
+                    />
+                    <div className="absolute right-0 top-full mt-1 z-50 min-w-[160px] rounded-md border bg-popover p-1 shadow-md">
+                      <div className="relative">
+                        <input
+                          type="file"
+                          accept=".html"
+                          onChange={(e) => {
+                            setShowImportDropdown(false)
+                            handleImportBookmarks(e)
+                          }}
+                          onClick={handleImportDialogOpen}
+                          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                          id="import-bookmarks-dropdown"
+                        />
+                        <button
+                          disabled={isImporting && !isImportDialogOpen}
+                          className="w-full flex items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground disabled:opacity-50 disabled:pointer-events-none"
+                        >
+                          {isImporting ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <FileDown className="h-4 w-4" />
+                          )}
+                          HTML File
+                        </button>
+                      </div>
+                      <button
+                        onClick={() => {
+                          setShowImportDropdown(false)
+                          setIsQRImportOpen(true)
+                          setTimeout(() => startQRScanner(), 100)
+                        }}
+                        className="w-full flex items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground"
+                      >
+                        <QrCode className="h-4 w-4" />
+                        QR Code
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+              
+              {/* Git Sync Button Group (merged appearance) */}
+              <div className="flex items-center border rounded-md overflow-hidden">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={syncWithGit}
+                  className="gap-2 rounded-none border-r"
+                  disabled={isSyncing || !gitConfigured}
+                  title={gitConfigured ? (lastSyncTime ? `Last synced: ${lastSyncTime.toLocaleTimeString()}` : 'Sync now') : 'Configure Git sync first'}
+                >
+                  <RefreshCw className={`h-4 w-4 ${isSyncing ? 'animate-spin' : ''}`} />
+                  <span className="hidden sm:inline">Sync</span>
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setGitSetupOpen(true)}
+                  className="rounded-none"
+                  title="Git sync settings"
+                >
+                  <Settings className="h-4 w-4" />
                 </Button>
               </div>
+              
+              {/* De-duplicate Button */}
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-2"
+                onClick={() => setShowDedupeDialog(true)}
+                disabled={links.length === 0}
+              >
+                <Copy className="h-4 w-4" />
+                <span className="hidden sm:inline">De-duplicate</span>
+                <span className="inline sm:hidden">Dedupe</span>
+              </Button>
+              
               <Button
                 variant="outline"
                 size="sm"
@@ -1598,6 +2312,423 @@ ${links.map(link => {
     </div>
             </div>
         </div>
+
+          {/* QR Export Dialog */}
+          <Dialog open={isQRExportOpen} onOpenChange={setIsQRExportOpen}>
+            <DialogContent className="w-[95vw] max-w-md mx-auto">
+              <DialogHeader>
+                <DialogTitle>Export as QR Code</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4">
+                {/* Checkbox - always visible */}
+                <div className="flex items-center space-x-2 p-3 bg-muted rounded-md">
+                  <input
+                    type="checkbox"
+                    id="colorQR"
+                    checked={useColorQR}
+                    onChange={(e) => {
+                      const newValue = e.target.checked
+                      setUseColorQR(newValue)
+                      // Auto-regenerate if QR codes already exist
+                      if (qrCodeImages.length > 0) {
+                        setQrCodeImages([])
+                        setCurrentQRIndex(0)
+                        setTimeout(() => {
+                          // Pass the new value directly to avoid state timing issues
+                          exportAsQRCode(true, newValue)
+                        }, 100)
+                      }
+                    }}
+                    className="h-4 w-4 rounded border-gray-300"
+                    disabled={isGeneratingQR}
+                  />
+                  <label htmlFor="colorQR" className="text-sm cursor-pointer">
+                    <span className="font-medium">High-density mode (less compatible)</span>
+                    <p className="text-xs text-muted-foreground">Fits more data per code using lower error correction. May not work with damaged QR codes or low-quality cameras.</p>
+                  </label>
+                </div>
+                
+                {qrCodeImages.length > 0 ? (
+                  <>
+                    <div className="text-center space-y-3">
+                      <p className="text-sm text-muted-foreground">
+                        {qrCodeImages.length > 1 
+                          ? `QR Code ${currentQRIndex + 1} of ${qrCodeImages.length}`
+                          : 'Scan this QR code with your other device'
+                        }
+                      </p>
+                      <div className="bg-white p-4 rounded-lg inline-block">
+                        <img 
+                          src={qrCodeImages[currentQRIndex]} 
+                          alt={`QR Code ${currentQRIndex + 1}`}
+                          className="w-full max-w-[300px] mx-auto"
+                        />
+                      </div>
+                      {qrCodeImages.length > 1 && (
+                        <p className="text-xs text-muted-foreground">
+                          Scan all QR codes in sequence to import all your links
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex justify-between gap-2">
+                      {qrCodeImages.length > 1 && (
+                        <>
+                          <Button
+                            variant="outline"
+                            onClick={() => setCurrentQRIndex(prev => Math.max(0, prev - 1))}
+                            disabled={currentQRIndex === 0}
+                          >
+                            Previous
+                          </Button>
+                          <Button
+                            variant="outline"
+                            onClick={() => setCurrentQRIndex(prev => Math.min(qrCodeImages.length - 1, prev + 1))}
+                            disabled={currentQRIndex === qrCodeImages.length - 1}
+                          >
+                            Next
+                          </Button>
+                        </>
+                      )}
+                    </div>
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        setIsQRExportOpen(false)
+                        setQrCodeImages([])
+                        setCurrentQRIndex(0)
+                        setUseColorQR(false)
+                      }}
+                      className="w-full"
+                    >
+                      Close
+                    </Button>
+                  </>
+                ) : (
+                  <div className="text-center py-8">
+                    <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4" />
+                    <p className="text-sm text-muted-foreground">Generating QR codes...</p>
+                  </div>
+                )}
+              </div>
+            </DialogContent>
+          </Dialog>
+
+          {/* QR Import Dialog */}
+          <Dialog open={isQRImportOpen} onOpenChange={(open) => !open && closeQRImport()}>
+            <DialogContent className="w-[95vw] max-w-md mx-auto">
+              <DialogHeader>
+                <DialogTitle>Import from QR Code</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4">
+                {/* Mode Selector */}
+                <div className="flex gap-2 bg-muted p-1 rounded-lg">
+                  <button
+                    onClick={() => {
+                      setImportMode('camera')
+                      setTimeout(() => startQRScanner(), 100)
+                    }}
+                    className={`flex-1 px-3 py-2 text-sm font-medium rounded-md transition-all ${
+                      importMode === 'camera'
+                        ? 'bg-background text-foreground shadow-sm'
+                        : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    <Camera className="h-4 w-4 inline mr-2" />
+                    Camera
+                  </button>
+                  <button
+                    onClick={() => {
+                      stopQRScanner()
+                      setImportMode('file')
+                      fileInputRef.current?.click()
+                    }}
+                    className={`flex-1 px-3 py-2 text-sm font-medium rounded-md transition-all ${
+                      importMode === 'file'
+                        ? 'bg-background text-foreground shadow-sm'
+                        : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    <Upload className="h-4 w-4 inline mr-2" />
+                    Upload Image
+                  </button>
+                </div>
+                
+                <div className="text-center space-y-3">
+                  <p className="text-sm text-muted-foreground">
+                    {scannedChunks.length > 0 
+                      ? `Scanned ${scannedChunks.length} QR code(s). Continue scanning if there are more.`
+                      : importMode === 'camera' 
+                        ? 'Point your camera at the QR code'
+                        : 'Click "Upload Image" to select a QR code image'
+                    }
+                  </p>
+                  
+                  {/* Hidden file input */}
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    onChange={handleQRImageUpload}
+                    className="hidden"
+                  />
+                  
+                  {/* QR Scanner Container - only show in camera mode */}
+                  {importMode === 'camera' && (
+                    <div className="bg-black rounded-lg overflow-hidden relative" style={{ minHeight: '300px' }}>
+                      <div id="qr-reader" className="w-full"></div>
+                      
+                      {!scannerReady && (
+                        <div className="absolute inset-0 flex items-center justify-center bg-black/50 rounded-lg">
+                          <div className="text-center">
+                            <Loader2 className="h-8 w-8 animate-spin mx-auto mb-2 text-white" />
+                            <p className="text-sm text-white">Starting camera...</p>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  
+                  {/* File upload placeholder */}
+                  {importMode === 'file' && (
+                    <div 
+                      className="border-2 border-dashed border-muted-foreground/30 rounded-lg p-8 cursor-pointer hover:border-muted-foreground/50 transition-colors"
+                      onClick={() => fileInputRef.current?.click()}
+                    >
+                      <Upload className="h-12 w-12 mx-auto mb-3 text-muted-foreground" />
+                      <p className="text-sm text-muted-foreground mb-1">Click to upload QR code image</p>
+                      <p className="text-xs text-muted-foreground">Supports JPG, PNG, and other image formats</p>
+                    </div>
+                  )}
+                </div>
+                
+                <div className="space-y-2">
+                  <p className="text-xs text-muted-foreground">
+                    • If you have multiple QR codes, scan them one by one
+                    <br />
+                    • Scanned QR codes will be merged with your existing links
+                    <br />
+                    • Duplicate links (same URL) will be skipped
+                  </p>
+                </div>
+                
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={closeQRImport}
+                    className="flex-1"
+                  >
+                    Cancel
+                  </Button>
+                  {scannedChunks.length > 0 && (
+                    <Button
+                      onClick={() => {
+                        // Force import with current chunks
+                        const allData = scannedChunks
+                          .map(chunk => {
+                            const match = chunk.match(/^(\d+)\/\d+\|(.+)$/)
+                            if (!match) return chunk
+                            return match[2]
+                          })
+                          .join('')
+                        importFromQRData(allData)
+                      }}
+                      className="flex-1"
+                    >
+                      Import Now ({scannedChunks.length})
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
+
+          {/* De-duplicate Dialog */}
+          <Dialog open={showDedupeDialog} onOpenChange={setShowDedupeDialog}>
+            <DialogContent className="w-[95vw] max-w-md mx-auto">
+              <DialogHeader>
+                <DialogTitle>De-duplicate Links</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4">
+                <div>
+                  <Label htmlFor="dedupe-mode">De-duplicate by</Label>
+                  <Select value={dedupeMode} onValueChange={(value) => setDedupeMode(value as 'url' | 'name')}>
+                    <SelectTrigger id="dedupe-mode" className="mt-1">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="url">URL (Recommended)</SelectItem>
+                      <SelectItem value="name">Name</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground mt-2">
+                    {dedupeMode === 'url' 
+                      ? 'Removes links with identical URLs. Keeps the first occurrence of each URL.'
+                      : 'Removes links with identical names (case-insensitive). Keeps the first occurrence of each name.'
+                    }
+                  </p>
+                </div>
+                
+                <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-md p-4">
+                  <p className="text-sm text-blue-600 dark:text-blue-400">
+                    <strong>Note:</strong> This will scan all {links.length} links and remove duplicates. This action cannot be undone.
+                  </p>
+                </div>
+                
+                <div className="flex justify-end gap-2 pt-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => setShowDedupeDialog(false)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={handleDeduplicate}
+                  >
+                    De-duplicate
+                  </Button>
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
+
+          {/* Git Setup Dialog */}
+          <Dialog open={gitSetupOpen} onOpenChange={setGitSetupOpen}>
+            <DialogContent className="w-[95vw] max-w-md mx-auto">
+              <DialogHeader>
+                <DialogTitle>Git Sync Configuration</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4">
+                <div>
+                  <Label htmlFor="git-repo-url">Git Repository URL</Label>
+                  <Input
+                    id="git-repo-url"
+                    placeholder="https://github.com/username/repo.git"
+                    value={gitRepoUrl}
+                    onChange={(e) => setGitRepoUrl(e.target.value)}
+                    className="mt-1"
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Works with GitHub, GitLab, Gitea, or any Git server
+                  </p>
+                </div>
+                
+                <div>
+                  <Label htmlFor="git-username">Username</Label>
+                  <Input
+                    id="git-username"
+                    placeholder="your-username"
+                    value={gitUsername}
+                    onChange={(e) => setGitUsername(e.target.value)}
+                    className="mt-1"
+                  />
+                </div>
+                
+                <div>
+                  <Label htmlFor="git-password">Password / Personal Access Token</Label>
+                  <Input
+                    id="git-password"
+                    type="password"
+                    placeholder="ghp_xxxxxxxxxxxx"
+                    value={gitPassword}
+                    onChange={(e) => setGitPassword(e.target.value)}
+                    className="mt-1"
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    For GitHub: Use Personal Access Token with 'repo' scope
+                  </p>
+                </div>
+                
+                <div>
+                  <Label htmlFor="git-branch">Branch</Label>
+                  <Input
+                    id="git-branch"
+                    placeholder="main"
+                    value={gitBranch}
+                    onChange={(e) => setGitBranch(e.target.value)}
+                    className="mt-1"
+                  />
+                </div>
+
+                <div className="flex items-center space-x-2 p-3 bg-muted rounded-md">
+                  <input
+                    type="checkbox"
+                    id="auto-sync"
+                    checked={gitSyncEnabled}
+                    onChange={(e) => setGitSyncEnabled(e.target.checked)}
+                    className="h-4 w-4 rounded border-gray-300"
+                  />
+                  <label htmlFor="auto-sync" className="text-sm cursor-pointer">
+                    <span className="font-medium">Auto-sync enabled</span>
+                    <p className="text-xs text-muted-foreground">Automatically sync changes every 5 seconds</p>
+                  </label>
+                </div>
+
+                {syncStatus && (
+                  <div className="p-3 bg-muted rounded-md text-sm text-center">
+                    {syncStatus}
+                  </div>
+                )}
+                
+                <div className="flex justify-end gap-2 pt-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => setGitSetupOpen(false)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={() => {
+                      saveGitConfig()
+                      setGitSetupOpen(false)
+                      if (gitRepoUrl) {
+                        setTimeout(() => syncWithGit(), 100)
+                      }
+                    }}
+                    disabled={!gitRepoUrl || !gitUsername || !gitPassword}
+                  >
+                    Save & Sync
+                  </Button>
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
+
+          {/* Sync Status Indicator */}
+          {syncStatus && gitConfigured && (
+            <div className="fixed bottom-4 right-4 z-50 bg-popover border rounded-lg shadow-lg p-3 max-w-xs">
+              <div className="flex items-center gap-2">
+                {isSyncing && <Loader2 className="h-4 w-4 animate-spin" />}
+                <span className="text-sm">{syncStatus}</span>
+              </div>
+            </div>
+          )}
+
+          {/* Toast Notifications */}
+          <div className="fixed top-4 right-4 z-50 space-y-2">
+            {toasts.map(toast => (
+              <div
+                key={toast.id}
+                className={`flex items-center gap-2 px-4 py-3 rounded-lg shadow-lg border animate-in slide-in-from-right duration-300 ${
+                  toast.type === 'success' 
+                    ? 'bg-green-50 border-green-200 text-green-800 dark:bg-green-900/20 dark:border-green-800 dark:text-green-200' 
+                    : toast.type === 'error'
+                    ? 'bg-red-50 border-red-200 text-red-800 dark:bg-red-900/20 dark:border-red-800 dark:text-red-200'
+                    : 'bg-blue-50 border-blue-200 text-blue-800 dark:bg-blue-900/20 dark:border-blue-800 dark:text-blue-200'
+                }`}
+              >
+                {toast.type === 'success' && <Check className="h-4 w-4 flex-shrink-0" />}
+                {toast.type === 'error' && <XCircle className="h-4 w-4 flex-shrink-0" />}
+                {toast.type === 'info' && <Loader2 className="h-4 w-4 flex-shrink-0" />}
+                <span className="text-sm font-medium">{toast.message}</span>
+                <button
+                  onClick={() => setToasts(prev => prev.filter(t => t.id !== toast.id))}
+                  className="ml-2 hover:opacity-70"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </div>
+            ))}
+          </div>
       </div>
       <Analytics />
     </>

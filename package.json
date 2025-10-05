@@ -15,6 +15,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@isomorphic-git/lightning-fs": "^4.6.2",
     "@tailwindcss/typography": "^0.5.16",
     "@types/node": "^22.15.29",
     "@types/react": "^19.1.6",
@@ -23,14 +24,20 @@
     "autoprefixer": "^10.4.21",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "html5-qrcode": "^2.3.8",
+    "isomorphic-git": "^1.34.0",
     "lucide-react": "^0.511.0",
     "next": "^15.3.3",
     "next-themes": "^0.4.6",
     "postcss": "^8.5.4",
+    "qrcode": "^1.5.4",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "tailwind-merge": "^3.3.0",
     "tailwindcss": "^3.4.17",
     "typescript": "^5.8.3"
+  },
+  "devDependencies": {
+    "@types/qrcode": "^1.5.5"
   }
 }
