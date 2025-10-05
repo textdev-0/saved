@@ -27,31 +27,22 @@ declare global {
   }
 }
 
-// Manual CRC64 implementation using ISO polynomial (0x42F0E1EBA9EA3693)
-// Based on the algorithm from https://www.sunshine2k.de/articles/coding/crc/understanding_crc.html
-function crc64(data: string): string {
-  // CRC64-ISO polynomial: 0x42F0E1EBA9EA3693
-  // Using a simplified polynomial for performance: 0x42F0E1EBA9EA3693
-  const POLY = BigInt('0x42F0E1EBA9EA3693')
-  const INIT = BigInt('0xFFFFFFFFFFFFFFFF')
-  const XOROUT = BigInt('0xFFFFFFFFFFFFFFFF')
+// FNV-1a 64-bit hash - simpler and faster than CRC64 for non-cryptographic use
+// Perfect for generating display IDs (same 16-char hex output)
+function fnv1a64(data: string): string {
+  // FNV-1a 64-bit constants
+  const FNV_OFFSET = BigInt('0xcbf29ce484222325')
+  const FNV_PRIME = BigInt('0x100000001b3')
   
-  let crc = INIT
+  let hash = FNV_OFFSET
   const bytes = new TextEncoder().encode(data)
   
   for (let i = 0; i < bytes.length; i++) {
-    crc = crc ^ BigInt(bytes[i])
-    
-    for (let j = 0; j < 8; j++) {
-      if (crc & BigInt(1)) {
-        crc = (crc >> BigInt(1)) ^ POLY
-      } else {
-        crc = crc >> BigInt(1)
-      }
-    }
+    hash ^= BigInt(bytes[i])
+    hash = (hash * FNV_PRIME) & BigInt('0xFFFFFFFFFFFFFFFF') // Keep 64-bit
   }
   
-  return ((crc ^ XOROUT) & BigInt('0xFFFFFFFFFFFFFFFF')).toString(16).toUpperCase().padStart(16, '0')
+  return hash.toString(16).toUpperCase().padStart(16, '0')
 }
 
 interface Link {
@@ -109,7 +100,7 @@ export default function LinkManager() {
   const [scannedChunks, setScannedChunks] = useState<string[]>([])
   const [scannerReady, setScannerReady] = useState(false)
   const [useColorQR, setUseColorQR] = useState(false)
-  const [importMode, setImportMode] = useState<'camera' | 'file'>('camera')
+  const [importMode, setImportMode] = useState<'camera' | 'file'>('file')
   const qrScannerRef = useRef<Html5Qrcode | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [showExportDropdown, setShowExportDropdown] = useState(false)
@@ -131,9 +122,11 @@ export default function LinkManager() {
   
   // Toast notification system
   const [toasts, setToasts] = useState<Array<{id: string, message: string, type: 'success' | 'error' | 'info'}>>([])
+  const toastIdCounter = useRef(0)
   
   const showToast = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
-    const id = Date.now().toString()
+    // Create truly unique ID using timestamp + counter + random
+    const id = `${Date.now()}-${toastIdCounter.current++}-${Math.random().toString(36).substr(2, 9)}`
     setToasts(prev => [...prev, { id, message, type }])
     setTimeout(() => {
       setToasts(prev => prev.filter(t => t.id !== id))
@@ -622,7 +615,7 @@ export default function LinkManager() {
     setLinks((prev) => [...prev, newLink])
   }
 
-  const getLinkCRC64 = (link: Link): string => {
+  const getLinkHash = (link: Link): string => {
     // Only hash the actual content, not dynamic fields like id/order
     const contentObject = {
       displayName: link.displayName,
@@ -631,7 +624,7 @@ export default function LinkManager() {
       url: link.url,
     };
     const linkJson = JSON.stringify(contentObject);
-    return crc64(linkJson).toUpperCase();
+    return fnv1a64(linkJson).toUpperCase();
   };
 
   // De-duplicate functionality
@@ -766,31 +759,44 @@ ${links.map(link => {
         const isCustomIcon = element.getAttribute('custom_icon') === 'true' || element.getAttribute('CUSTOM_ICON') === 'true'
         
         if (url && displayName) {
-          // Check if link already exists
-          const existingLink = links.find(link => link.url === url)
-          if (!existingLink) {
-            importedLinks.push({
-              id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
-              url,
-              displayName,
-              starred,
-              iconUrl,
-              order: links.length + importedLinks.length
-            })
-            
-            // Log icon info for debugging (optional metadata)
-            if (hasIcon && isCustomIcon) {
-              console.log(`Imported "${displayName}" with custom icon`)
-            }
+          importedLinks.push({
+            id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
+            url,
+            displayName,
+            starred,
+            iconUrl,
+            order: 0 // Will be reassigned later
+          })
+          
+          // Log icon info for debugging (optional metadata)
+          if (hasIcon && isCustomIcon) {
+            console.log(`Imported "${displayName}" with custom icon`)
           }
         }
       })
       
-      if (importedLinks.length > 0) {
-        setLinks(prev => [...prev, ...importedLinks])
+      // Use callback to get latest state and filter duplicates by BOTH URL and name
+      setLinks(prev => {
+        const newLinks = importedLinks.filter(
+          importedLink => !prev.some(link => 
+            link.url === importedLink.url && 
+            link.displayName.toLowerCase() === importedLink.displayName.toLowerCase()
+          )
+        )
+        
+        if (newLinks.length === 0) {
+          showToast('No new links to import (all links already exist or no valid links found)', 'info')
+          return prev
+        }
+        
+        // Reassign order
+        const linksWithOrder = newLinks.map((link, index) => ({
+          ...link,
+          order: prev.length + index
+        }))
         
         // Auto-generate icons for links without icons
-        importedLinks.forEach(link => {
+        linksWithOrder.forEach(link => {
           if (!link.iconUrl) {
             generateFavicon(link.url).then(iconUrl => {
               if (iconUrl) {
@@ -803,7 +809,7 @@ ${links.map(link => {
         })
         
         // Set loading icons for external URLs
-        const externalIcons = importedLinks.filter(link => link.iconUrl && !link.iconUrl.startsWith('data:'))
+        const externalIcons = linksWithOrder.filter(link => link.iconUrl && !link.iconUrl.startsWith('data:'))
         if (externalIcons.length > 0) {
           setLoadingIcons(prev => {
             const newSet = new Set(prev)
@@ -811,10 +817,10 @@ ${links.map(link => {
             return newSet
           })
         }
-        showToast(`Successfully imported ${importedLinks.length} new links!`, 'success')
-      } else {
-        showToast('No new links to import (all links already exist or no valid links found)', 'info')
-      }
+        showToast(`Successfully imported ${newLinks.length} new links!`, 'success')
+        
+        return [...prev, ...linksWithOrder]
+      })
     } catch (error) {
       console.error('Error importing bookmarks:', error)
       showToast('Error importing bookmarks. Please ensure the file is a valid HTML bookmarks file.', 'error')
@@ -997,20 +1003,27 @@ ${links.map(link => {
     try {
       const importedLinks: Link[] = JSON.parse(dataString)
       
-      // Merge with existing links (skip duplicates by URL)
-      const newLinks = importedLinks.filter(
-        importedLink => !links.some(link => link.url === importedLink.url)
-      )
-      
-      if (newLinks.length > 0) {
+      // Use callback to get latest state and filter duplicates
+      setLinks(prev => {
+        // Merge with existing links (skip duplicates by BOTH URL and name)
+        const newLinks = importedLinks.filter(
+          importedLink => !prev.some(link => 
+            link.url === importedLink.url && 
+            link.displayName.toLowerCase() === importedLink.displayName.toLowerCase()
+          )
+        )
+        
+        if (newLinks.length === 0) {
+          showToast('No new links to import (all links already exist)', 'info')
+          return prev
+        }
+        
         // Assign new IDs and orders
         const linksWithNewIds = newLinks.map((link, index) => ({
           ...link,
           id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
-          order: links.length + index
+          order: prev.length + index
         }))
-        
-        setLinks(prev => [...prev, ...linksWithNewIds])
         
         // Auto-generate icons for links without icons
         linksWithNewIds.forEach(link => {
@@ -1036,9 +1049,9 @@ ${links.map(link => {
         }
         
         showToast(`Successfully imported ${newLinks.length} new links!`, 'success')
-      } else {
-        showToast('No new links to import (all links already exist)', 'info')
-      }
+        
+        return [...prev, ...linksWithNewIds]
+      })
       
       stopQRScanner()
       setIsQRImportOpen(false)
@@ -1065,7 +1078,8 @@ ${links.map(link => {
     stopQRScanner()
     setIsQRImportOpen(false)
     setScannedChunks([])
-    setImportMode('camera')
+    // Reset to no mode selected so user can choose
+    setImportMode('file')
   }
 
   // Handle QR code image file upload
@@ -1220,9 +1234,13 @@ ${links.map(link => {
       }
 
       // Merge with local links (prefer local, add remote ones that don't exist)
+      // Check both URL and name to identify duplicates
       const mergedLinks = [...links]
       remoteLinks.forEach(remoteLink => {
-        if (!links.some(l => l.url === remoteLink.url)) {
+        if (!links.some(l => 
+          l.url === remoteLink.url && 
+          l.displayName.toLowerCase() === remoteLink.displayName.toLowerCase()
+        )) {
           mergedLinks.push({
             ...remoteLink,
             id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
@@ -1884,7 +1902,7 @@ ${linksToExport.map(link => {
                       </Button>
                     </div>
                       <div className="absolute inset-0 flex items-end justify-start pb-0 pl-6 text-base text-muted-foreground opacity-100 group-hover:opacity-0 transition-opacity duration-300 pointer-events-none">
-                        <span>#{getLinkCRC64(link)}</span>
+                        <span>#{getLinkHash(link)}</span>
                       </div>
                     </div>
                 </CardHeader>
@@ -2202,7 +2220,7 @@ ${linksToExport.map(link => {
                         onClick={() => {
                           setShowImportDropdown(false)
                           setIsQRImportOpen(true)
-                          setTimeout(() => startQRScanner(), 100)
+                          // Don't auto-start scanner - let user choose camera or file
                         }}
                         className="w-full flex items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground"
                       >
@@ -2424,8 +2442,10 @@ ${linksToExport.map(link => {
                 <div className="flex gap-2 bg-muted p-1 rounded-lg">
                   <button
                     onClick={() => {
-                      setImportMode('camera')
-                      setTimeout(() => startQRScanner(), 100)
+                      if (importMode !== 'camera') {
+                        setImportMode('camera')
+                        setTimeout(() => startQRScanner(), 100)
+                      }
                     }}
                     className={`flex-1 px-3 py-2 text-sm font-medium rounded-md transition-all ${
                       importMode === 'camera'
@@ -2438,8 +2458,10 @@ ${linksToExport.map(link => {
                   </button>
                   <button
                     onClick={() => {
-                      stopQRScanner()
-                      setImportMode('file')
+                      if (importMode !== 'file') {
+                        stopQRScanner()
+                        setImportMode('file')
+                      }
                       fileInputRef.current?.click()
                     }}
                     className={`flex-1 px-3 py-2 text-sm font-medium rounded-md transition-all ${
@@ -2457,9 +2479,11 @@ ${linksToExport.map(link => {
                   <p className="text-sm text-muted-foreground">
                     {scannedChunks.length > 0 
                       ? `Scanned ${scannedChunks.length} QR code(s). Continue scanning if there are more.`
-                      : importMode === 'camera' 
+                      : importMode === 'camera' && scannerReady
                         ? 'Point your camera at the QR code'
-                        : 'Click "Upload Image" to select a QR code image'
+                        : importMode === 'file'
+                        ? 'Click "Upload Image" again to select a QR code image'
+                        : 'Choose how to import your QR code: use your camera or upload an image file'
                     }
                   </p>
                   
@@ -2473,7 +2497,7 @@ ${linksToExport.map(link => {
                   />
                   
                   {/* QR Scanner Container - only show in camera mode */}
-                  {importMode === 'camera' && (
+                  {importMode === 'camera' ? (
                     <div className="bg-black rounded-lg overflow-hidden relative" style={{ minHeight: '300px' }}>
                       <div id="qr-reader" className="w-full"></div>
                       
@@ -2486,10 +2510,8 @@ ${linksToExport.map(link => {
                         </div>
                       )}
                     </div>
-                  )}
-                  
-                  {/* File upload placeholder */}
-                  {importMode === 'file' && (
+                  ) : (
+                    /* File upload placeholder */
                     <div 
                       className="border-2 border-dashed border-muted-foreground/30 rounded-lg p-8 cursor-pointer hover:border-muted-foreground/50 transition-colors"
                       onClick={() => fileInputRef.current?.click()}
