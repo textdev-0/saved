@@ -4,7 +4,11 @@ import './globals.css'
 import { ThemeProvider } from '@/components/theme-provider'
 import { Analytics } from "@vercel/analytics/next"
 
-const inter = Inter({ subsets: ['latin'] })
+const inter = Inter({ 
+  subsets: ['latin'],
+  display: 'swap', // Improve font loading performance
+  preload: true,
+})
 
 export const metadata: Metadata = {
   title: 'Link Manager',

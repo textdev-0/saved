@@ -1,13 +1,10 @@
 "use client"
 
 import type React from "react"
+import dynamic from "next/dynamic"
 
 import { useState, useEffect, useRef } from "react"
 import { Plus, ExternalLink, Edit2, Trash2, Moon, Sun, Type, Image, X, Star, GripVertical, Upload, Zap, BookOpen, Github, Twitter, Youtube, Globe, Lightbulb, ChevronDown, Search, Download, FileUp, Loader2, FileX2, Check, XCircle, Monitor, Smartphone, QrCode, Camera, FileDown, RefreshCw, Settings, Copy } from "lucide-react"
-import QRCode from "qrcode"
-import { Html5Qrcode } from "html5-qrcode"
-import git from "isomorphic-git"
-import http from "isomorphic-git/http/web"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -60,7 +57,7 @@ const FONT_OPTIONS = [
   { value: "Serif", label: "Serif", className: "font-serif" },
 ]
 
-export default function LinkManager() {
+function LinkManager() {
   const [links, setLinks] = useState<Link[]>([])
   const [selectedFont, setSelectedFont] = useState("Monospace")
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
@@ -101,7 +98,7 @@ export default function LinkManager() {
   const [scannerReady, setScannerReady] = useState(false)
   const [useColorQR, setUseColorQR] = useState(false)
   const [importMode, setImportMode] = useState<'camera' | 'file'>('file')
-  const qrScannerRef = useRef<Html5Qrcode | null>(null)
+  const qrScannerRef = useRef<any>(null) // Html5Qrcode instance, dynamically imported
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [showExportDropdown, setShowExportDropdown] = useState(false)
   const [showImportDropdown, setShowImportDropdown] = useState(false)
@@ -123,6 +120,12 @@ export default function LinkManager() {
   // Toast notification system
   const [toasts, setToasts] = useState<Array<{id: string, message: string, type: 'success' | 'error' | 'info'}>>([])
   const toastIdCounter = useRef(0)
+  const linksRef = useRef<Link[]>(links)
+  
+  // Keep linksRef updated
+  useEffect(() => {
+    linksRef.current = links
+  }, [links])
   
   const showToast = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
     // Create truly unique ID using timestamp + counter + random
@@ -133,7 +136,7 @@ export default function LinkManager() {
     }, 4000)
   }
 
-  // Handle hydration and device detection
+  // Handle device detection
   useEffect(() => {
     setMounted(true)
     
@@ -857,6 +860,9 @@ ${links.map(link => {
     }
     
     try {
+      // Dynamically import QRCode library only when needed
+      const QRCode = (await import('qrcode')).default
+      
       // Small delay to show loading state
       await new Promise(resolve => setTimeout(resolve, 300))
       
@@ -920,6 +926,9 @@ ${links.map(link => {
   // QR Code Import - scans QR codes and merges data
   const startQRScanner = async () => {
     try {
+      // Dynamically import Html5Qrcode library only when needed
+      const { Html5Qrcode } = await import('html5-qrcode')
+      
       const html5QrCode = new Html5Qrcode("qr-reader")
       qrScannerRef.current = html5QrCode
       
@@ -1088,6 +1097,9 @@ ${links.map(link => {
     if (!file) return
 
     try {
+      // Dynamically import Html5Qrcode library only when needed
+      const { Html5Qrcode } = await import('html5-qrcode')
+      
       // Create a temporary element for file scanning
       const tempId = 'qr-reader-temp-' + Date.now()
       const tempDiv = document.createElement('div')
@@ -1161,7 +1173,178 @@ ${links.map(link => {
     setGitConfigured(!!gitRepoUrl)
   }
 
-  // Git sync function
+  // Check for remote updates (pull only, no push)
+  const checkForUpdates = async () => {
+    if (!gitConfigured || !gitRepoUrl || isSyncing) return
+
+    try {
+      // Dynamically import git libraries only when needed
+      const [git, { default: http }, { default: LightningFS }] = await Promise.all([
+        import('isomorphic-git'),
+        import('isomorphic-git/http/web'),
+        import('@isomorphic-git/lightning-fs')
+      ])
+      
+      const pfs = new LightningFS('link-manager-git')
+      const dir = '/repo'
+
+      // Authentication
+      const onAuth = () => ({
+        username: gitUsername,
+        password: gitPassword
+      })
+
+      // Check if repo exists
+      let repoExists = false
+      try {
+        await pfs.promises.readdir(dir)
+        repoExists = true
+      } catch (e) {
+        // Repo doesn't exist yet, skip update check
+        return
+      }
+
+      // Pull latest changes silently
+      await git.pull({
+        fs: pfs,
+        http,
+        dir,
+        ref: gitBranch,
+        author: {
+          name: gitUsername || 'Link Manager',
+          email: `${gitUsername}@linkmanager.local`
+        },
+        onAuth
+      })
+
+      // Read the remote file
+      let remoteLinks: Link[] = []
+      try {
+        const fileContent = await pfs.promises.readFile(`${dir}/links.html`, 'utf8')
+        remoteLinks = parseHTMLBookmarks(fileContent)
+      } catch (e) {
+        return
+      }
+
+      // Merge with local links (prefer local, add remote ones that don't exist)
+      const currentLinks = linksRef.current
+      const mergedLinks = [...currentLinks]
+      let hasNewLinks = false
+      
+      remoteLinks.forEach(remoteLink => {
+        if (!currentLinks.some(l => 
+          l.url === remoteLink.url && 
+          l.displayName.toLowerCase() === remoteLink.displayName.toLowerCase()
+        )) {
+          mergedLinks.push({
+            ...remoteLink,
+            id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
+            order: mergedLinks.length
+          })
+          hasNewLinks = true
+        }
+      })
+
+      if (hasNewLinks) {
+        setLinks(mergedLinks)
+        showToast(`Synced ${mergedLinks.length - currentLinks.length} new link(s) from remote`, "success")
+        setLastSyncTime(new Date())
+      }
+    } catch (error: any) {
+      // Silently fail for periodic checks
+      console.log("Update check failed:", error.message)
+    }
+  }
+
+  // Push local changes to remote
+  const pushChanges = async () => {
+    if (!gitConfigured || !gitRepoUrl) return
+
+    setIsSyncing(true)
+    setSyncStatus("Uploading changes...")
+
+    try {
+      // Dynamically import git libraries only when needed
+      const [git, { default: http }, { default: LightningFS }] = await Promise.all([
+        import('isomorphic-git'),
+        import('isomorphic-git/http/web'),
+        import('@isomorphic-git/lightning-fs')
+      ])
+      
+      const pfs = new LightningFS('link-manager-git')
+      const dir = '/repo'
+
+      // Authentication
+      const onAuth = () => ({
+        username: gitUsername,
+        password: gitPassword
+      })
+
+      // Check if repo exists
+      let repoExists = false
+      try {
+        await pfs.promises.readdir(dir)
+        repoExists = true
+      } catch (e) {
+        // Repo doesn't exist, will clone
+      }
+
+      if (!repoExists) {
+        // Clone repository first
+        setSyncStatus("Cloning repository...")
+        await git.clone({
+          fs: pfs,
+          http,
+          dir,
+          url: gitRepoUrl,
+          ref: gitBranch,
+          singleBranch: true,
+          depth: 1,
+          onAuth
+        })
+      }
+
+      // Export current links to HTML
+      const bookmarkHTML = generateBookmarkHTML(links)
+      await pfs.promises.writeFile(`${dir}/links.html`, bookmarkHTML, 'utf8')
+
+      // Add, commit, and push
+      setSyncStatus("Committing changes...")
+      await git.add({ fs: pfs, dir, filepath: 'links.html' })
+      
+      await git.commit({
+        fs: pfs,
+        dir,
+        message: `Update links - ${new Date().toISOString()}`,
+        author: {
+          name: gitUsername || 'Link Manager',
+          email: `${gitUsername}@linkmanager.local`
+        }
+      })
+
+      setSyncStatus("Pushing changes...")
+      await git.push({
+        fs: pfs,
+        http,
+        dir,
+        remote: 'origin',
+        ref: gitBranch,
+        onAuth
+      })
+
+      setLastSyncTime(new Date())
+      setSyncStatus("Changes uploaded!")
+      setTimeout(() => setSyncStatus(""), 3000)
+    } catch (error: any) {
+      console.error("Push error:", error)
+      setSyncStatus(`Upload failed: ${error.message}`)
+      setTimeout(() => setSyncStatus(""), 5000)
+    } finally {
+      setIsSyncing(false)
+    }
+  }
+
+  // Git sync function (full sync - used for manual sync button)
   const syncWithGit = async () => {
     if (!gitConfigured || !gitRepoUrl) {
       showToast("Please configure Git sync first", "error")
@@ -1173,11 +1356,14 @@ ${links.map(link => {
     setSyncStatus("Syncing...")
 
     try {
-      // Use Lightning FS (in-memory filesystem for browser)
-      const fs = typeof window !== 'undefined' ? (await import('@isomorphic-git/lightning-fs')).default : null
-      if (!fs) throw new Error("Filesystem not available")
+      // Dynamically import git libraries only when needed
+      const [git, { default: http }, { default: LightningFS }] = await Promise.all([
+        import('isomorphic-git'),
+        import('isomorphic-git/http/web'),
+        import('@isomorphic-git/lightning-fs')
+      ])
       
-      const pfs = new fs('link-manager-git')
+      const pfs = new LightningFS('link-manager-git')
       const dir = '/repo'
 
       // Authentication
@@ -1352,17 +1538,38 @@ ${linksToExport.map(link => {
 </DL><p>`
   }
 
-  // Auto-sync on changes (debounced)
+  // Auto-push changes (debounced - 5 seconds after last change)
   useEffect(() => {
     if (!gitConfigured || !gitSyncEnabled || !mounted) return
 
     const syncTimeout = setTimeout(() => {
-      syncWithGit()
-    }, 5000) // Sync 5 seconds after last change
+      pushChanges()
+    }, 5000) // Push 5 seconds after last change
 
     return () => clearTimeout(syncTimeout)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [links, gitConfigured, gitSyncEnabled, mounted])
+
+  // Periodic check for remote updates (every 5 seconds)
+  useEffect(() => {
+    if (!gitConfigured || !gitSyncEnabled || !mounted) return
+
+    // Initial check after 5 seconds
+    const initialDelay = setTimeout(() => {
+      checkForUpdates()
+    }, 5000)
+
+    // Then check every 5 seconds
+    const checkInterval = setInterval(() => {
+      checkForUpdates()
+    }, 5000)
+
+    return () => {
+      clearTimeout(initialDelay)
+      clearInterval(checkInterval)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gitConfigured, gitSyncEnabled, mounted])
   
   // Save Git sync status when it changes
   useEffect(() => {
@@ -1371,10 +1578,6 @@ ${linksToExport.map(link => {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gitSyncEnabled])
-
-  if (!mounted) {
-    return null
-  }
 
   return (
     <>
@@ -1537,7 +1740,7 @@ ${linksToExport.map(link => {
                       </div>
                     </div>
 
-                    <div className="flex justify-end gap-2 pt-2">
+                <div className="flex flex-col sm:flex-row justify-end gap-2 pt-2">
                       <Button variant="outline" onClick={closeAddDialog}>
                       Cancel
                     </Button>
@@ -2036,7 +2239,7 @@ ${linksToExport.map(link => {
                   </div>
                 </div>
 
-                <div className="flex justify-end gap-2 pt-2">
+            <div className="flex flex-col sm:flex-row justify-end gap-2 pt-2">
                 <Button variant="outline" onClick={closeEditDialog}>
                   Cancel
                 </Button>
@@ -2078,7 +2281,7 @@ ${linksToExport.map(link => {
                   </p>
                 </div>
                 
-                <div className="flex justify-end gap-2 pt-2">
+            <div className="flex flex-col sm:flex-row justify-end gap-2 pt-2">
                   <Button
                     variant="outline"
                     onClick={() => setDeleteDialogOpen(false)}
@@ -2103,7 +2306,7 @@ ${linksToExport.map(link => {
           {/* Stats and Actions */}
           <div className="mt-6 sm:mt-8 space-y-4">
             {/* Ko-fi Support & Export/Import Buttons */}
-            <div className="flex justify-center gap-2">
+            <div className="flex flex-col sm:flex-row justify-center gap-2">
               <a 
                 href="https://ko-fi.com/T6T41FVX1P" 
                 target="_blank" 
@@ -2388,13 +2591,14 @@ ${linksToExport.map(link => {
                         </p>
                       )}
                     </div>
-                    <div className="flex justify-between gap-2">
+                <div className="flex flex-col sm:flex-row justify-between gap-2">
                       {qrCodeImages.length > 1 && (
                         <>
                           <Button
                             variant="outline"
                             onClick={() => setCurrentQRIndex(prev => Math.max(0, prev - 1))}
                             disabled={currentQRIndex === 0}
+                        className="w-full sm:w-auto"
                           >
                             Previous
                           </Button>
@@ -2402,6 +2606,7 @@ ${linksToExport.map(link => {
                             variant="outline"
                             onClick={() => setCurrentQRIndex(prev => Math.min(qrCodeImages.length - 1, prev + 1))}
                             disabled={currentQRIndex === qrCodeImages.length - 1}
+                        className="w-full sm:w-auto"
                           >
                             Next
                           </Button>
@@ -2533,7 +2738,7 @@ ${linksToExport.map(link => {
                   </p>
                 </div>
                 
-                <div className="flex gap-2">
+            <div className="flex flex-col sm:flex-row gap-2">
                   <Button
                     variant="outline"
                     onClick={closeQRImport}
@@ -2596,7 +2801,7 @@ ${linksToExport.map(link => {
                   </p>
                 </div>
                 
-                <div className="flex justify-end gap-2 pt-2">
+            <div className="flex flex-col sm:flex-row justify-end gap-2 pt-2">
                   <Button
                     variant="outline"
                     onClick={() => setShowDedupeDialog(false)}
@@ -2691,7 +2896,7 @@ ${linksToExport.map(link => {
                   </div>
                 )}
                 
-                <div className="flex justify-end gap-2 pt-2">
+            <div className="flex flex-col sm:flex-row justify-end gap-2 pt-2">
                   <Button
                     variant="outline"
                     onClick={() => setGitSetupOpen(false)}
@@ -2755,4 +2960,9 @@ ${linksToExport.map(link => {
       <Analytics />
     </>
   )
-} 
+}
+
+// Export with SSR disabled to prevent hydration issues
+export default dynamic(() => Promise.resolve(LinkManager), {
+  ssr: false,
+}) 
